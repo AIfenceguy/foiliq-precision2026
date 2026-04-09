@@ -1071,6 +1071,15 @@ h3 { font-size: 20px; }
       <input type="text" id="intel-search" placeholder="🔍 Search fencers — first or last name..." oninput="filterIntel()">
       <div id="intel-match-count" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
     </div>
+    <div style="margin-bottom:12px;">
+      <button class="btn-outline btn-sm" style="width:100%;" onclick="loadAllIntelForDivision(ACTIVE_EVENT)">📥 Load All Intel for <span id="intel-load-div-label">JNR</span></button>
+      <div id="intel-load-progress" style="display:none;margin-top:8px;">
+        <div style="background:var(--bg2);border:1px solid var(--gold-border);border-radius:8px;overflow:hidden;height:8px;margin-bottom:4px;">
+          <div id="intel-load-bar" style="height:100%;background:var(--gold);width:0%;transition:width .3s;"></div>
+        </div>
+        <div id="intel-load-status" style="font-size:11px;color:var(--text2);text-align:center;"></div>
+      </div>
+    </div>
     <div id="intel-ref-section" class="card hidden">
       <div class="card-header">🏁 Referee Observation</div>
       <div class="ref-options" id="ref-options"></div>
@@ -1095,6 +1104,7 @@ h3 { font-size: 20px; }
         <button class="btn-gold" style="flex:1;" onclick="analyzePool()">Analyze Pool →</button>
       </div>
     </div>
+    <div id="pool-live-analytics"></div>
     <div id="pool-analysis" class="hidden">
       <div class="card">
         <div class="card-header">Pool Analysis</div>
@@ -1112,8 +1122,9 @@ h3 { font-size: 20px; }
   <!-- TAB 4: BOUT TIMER -->
   <div class="tab-panel" id="tab-timer">
     <div class="intel-event-tabs" style="margin-bottom:14px;">
-      <button class="intel-event-tab active" id="timer-tab-new" onclick="showTimerView('new',this)">+ New Bout</button>
-      <button class="intel-event-tab" id="timer-tab-log" onclick="showTimerView('log',this)">📋 Bout Log</button>
+      <button class="intel-event-tab active" id="timer-tab-new" onclick="showTimerView('new',this)">⏱ Timer</button>
+      <button class="intel-event-tab" id="timer-tab-manual" onclick="showTimerView('manual',this)">✏ Manual</button>
+      <button class="intel-event-tab" id="timer-tab-log" onclick="showTimerView('log',this)">📋 Log</button>
     </div>
     <div id="timer-new-view">
       <div class="timer-setup" id="timer-setup">
@@ -1147,9 +1158,67 @@ h3 { font-size: 20px; }
         <button class="btn-gold" style="margin-top:16px;" onclick="startBout()">▶ Start Bout →</button>
       </div>
     </div>
+    <div id="timer-manual-view" class="hidden">
+      <div class="card">
+        <div class="card-header">✏ Manual Bout Entry</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Add a bout result without using the timer.</p>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">OPPONENT</label>
+          <input type="text" id="manual-opp" placeholder="Opponent name">
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">YOUR SCORE</label>
+            <div class="spinner-row" style="justify-content:center;">
+              <button class="spinner-btn" style="width:44px;height:44px;" onclick="adjustManualScore('self',-1)">−</button>
+              <span class="spinner-val" id="manual-score-self">0</span>
+              <button class="spinner-btn" style="width:44px;height:44px;" onclick="adjustManualScore('self',1)">+</button>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">THEIR SCORE</label>
+            <div class="spinner-row" style="justify-content:center;">
+              <button class="spinner-btn" style="width:44px;height:44px;" onclick="adjustManualScore('opp',-1)">−</button>
+              <span class="spinner-val" id="manual-score-opp">0</span>
+              <button class="spinner-btn" style="width:44px;height:44px;" onclick="adjustManualScore('opp',1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">BOUT TYPE</label>
+          <div class="type-pills">
+            <button class="type-pill active" id="manual-type-pool" onclick="setManualType('pool')">Pool</button>
+            <button class="type-pill" id="manual-type-de" onclick="setManualType('de')">DE</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;" id="manual-bout-num-group">
+          <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">BOUT #</label>
+          <div class="bout-num-pills">
+            <button class="bout-num-pill active" id="manual-bn-1" onclick="setManualBoutNum(1)">1</button>
+            <button class="bout-num-pill" id="manual-bn-2" onclick="setManualBoutNum(2)">2</button>
+            <button class="bout-num-pill" id="manual-bn-3" onclick="setManualBoutNum(3)">3</button>
+            <button class="bout-num-pill" id="manual-bn-4" onclick="setManualBoutNum(4)">4</button>
+            <button class="bout-num-pill" id="manual-bn-5" onclick="setManualBoutNum(5)">5</button>
+            <button class="bout-num-pill" id="manual-bn-6" onclick="setManualBoutNum(6)">6</button>
+            <button class="bout-num-pill" id="manual-bn-7" onclick="setManualBoutNum(7)">7</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:4px;">WHO SCORED FIRST TOUCH?</label>
+          <div class="type-pills">
+            <button class="type-pill" id="manual-ft-me" onclick="setManualFT('you')">Me</button>
+            <button class="type-pill" id="manual-ft-them" onclick="setManualFT('opp')">Them</button>
+            <button class="type-pill active" id="manual-ft-unk" onclick="setManualFT('unknown')">Unknown</button>
+          </div>
+        </div>
+        <button class="btn-gold" style="margin-top:8px;" onclick="saveManualBout()">Save Bout →</button>
+      </div>
+    </div>
     <div id="timer-log-view" class="hidden">
       <div id="bout-log-content"></div>
     </div>
+    <!-- Live pool analytics -->
+    <div id="live-pool-analytics"></div>
   </div>
 
   <!-- TAB 5: PRE-GAME -->
@@ -3982,11 +4051,14 @@ function getPoolTips() {
 
 function showTimerView(view, btn) {
   document.getElementById('timer-new-view').classList.toggle('hidden', view !== 'new');
+  document.getElementById('timer-manual-view').classList.toggle('hidden', view !== 'manual');
   document.getElementById('timer-log-view').classList.toggle('hidden', view !== 'log');
   document.getElementById('timer-tab-new').classList.toggle('active', view === 'new');
+  document.getElementById('timer-tab-manual').classList.toggle('active', view === 'manual');
   document.getElementById('timer-tab-log').classList.toggle('active', view === 'log');
   if(view === 'log') renderBoutLog();
   if(view === 'new') updateTimerFencerIndicator();
+  updateLivePoolAnalytics();
 }
 
 function updateTimerFencerIndicator() {
@@ -4493,16 +4565,20 @@ function openSettings() {
   html += '<div class="settings-row"><span class="settings-row-label">Debrief sessions</span><span class="settings-row-val">' + dbSessions.length + '</span></div>';
   html += '</div>';
 
+  // Opponent profiles cache
+  html += '<div class="settings-group">';
+  html += '<div class="settings-label">OPPONENT PROFILES</div>';
+  var profileCount = countCachedProfiles();
+  html += '<div class="settings-row"><span class="settings-row-label">Cached profiles</span><span class="settings-row-val">' + profileCount + '</span></div>';
+  if(profileCount > 0) {
+    html += '<button class="settings-danger-btn" style="font-size:11px;min-height:30px;padding:4px 8px;margin-top:6px;" onclick="clearCachedProfiles()">Clear Profile Cache</button>';
+  }
+  html += '</div>';
+
   // Storage
   html += '<div class="settings-group">';
   html += '<div class="settings-label">STORAGE</div>';
-  var totalBytes = 0;
-  var si;
-  for(si = 0; si < localStorage.length; si++) {
-    var k = localStorage.key(si);
-    totalBytes += (localStorage.getItem(k) || '').length * 2;
-  }
-  html += '<div class="settings-row"><span class="settings-row-label">localStorage used</span><span class="settings-row-val">~' + Math.round(totalBytes / 1024) + ' KB</span></div>';
+  html += '<div class="settings-row"><span class="settings-row-label">localStorage used</span><span class="settings-row-val">~' + getStorageSize() + ' KB</span></div>';
   html += '</div>';
 
   html += '<div style="text-align:center;color:var(--text3);font-size:12px;margin-top:10px;">FoilIQ V2 • Apr 2026</div>';
@@ -4523,7 +4599,7 @@ function confirmClearBouts(fencerKey) {
     localStorage.removeItem('ft_live_bouts_' + fencerKey);
     closeConfirm();
     openSettings();
-    showStatus('Bout records cleared for ' + FENCERS[fencerKey].first);
+    showToast('Bout records cleared for ' + FENCERS[fencerKey].first);
   };
   document.getElementById('confirm-dialog').classList.add('open');
 }
@@ -4546,6 +4622,629 @@ function closeSummaryAndViewLog() {
   document.getElementById('timer-summary').classList.remove('active');
   showTimerView('log', document.getElementById('timer-tab-log'));
 }
+
+
+/* ================================================================
+   TOAST NOTIFICATIONS
+   ================================================================ */
+
+function showToast(msg, type) {
+  var existing = document.getElementById('foiliq-toast');
+  if(existing) existing.remove();
+  var toast = document.createElement('div');
+  toast.id = 'foiliq-toast';
+  var bg = type === 'error' ? 'var(--red)' : type === 'warn' ? 'var(--gold)' : 'var(--green)';
+  var txtColor = type === 'warn' ? '#070B15' : '#fff';
+  toast.style.cssText = 'position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);' +
+    'background:' + bg + ';color:' + txtColor + ';padding:10px 24px;border-radius:20px;' +
+    'font-weight:700;font-size:13px;z-index:9999;white-space:nowrap;opacity:0;transition:opacity .2s;';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.style.opacity = '1'; }, 10);
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    setTimeout(function() { if(toast.parentNode) toast.remove(); }, 300);
+  }, 2500);
+}
+
+
+/* ================================================================
+   BATCH FT FETCH — LOAD ALL INTEL
+   ================================================================ */
+
+var FT_CACHE_PREFIX = 'ft_profile_v2_';
+var FT_PROXY = 'https://api.allorigins.win/get?url=';
+
+function loadAllIntelForDivision(divKey) {
+  var field = EVENT_MAP[divKey] ? EVENT_MAP[divKey].field : [];
+  var total = field.length;
+  var current = 0;
+  var loaded = 0;
+  var failed = 0;
+  var skipped = 0;
+
+  document.getElementById('intel-load-progress').style.display = 'block';
+  document.getElementById('intel-load-bar').style.width = '0%';
+
+  function loadNext() {
+    if(current >= total) {
+      document.getElementById('intel-load-bar').style.width = '100%';
+      document.getElementById('intel-load-status').textContent =
+        'Done — ' + loaded + ' loaded, ' + skipped + ' cached, ' + failed + ' not found';
+      showToast('Intel loaded for ' + divKey.toUpperCase());
+      renderOppListCompact();
+      return;
+    }
+
+    var f = field[current];
+    var pct = Math.round(current / total * 100);
+    document.getElementById('intel-load-bar').style.width = pct + '%';
+    document.getElementById('intel-load-status').textContent =
+      '[' + (current + 1) + '/' + total + '] ' + f.first + ' ' + f.last + '...';
+
+    // Skip stubs and self
+    if(f.last === 'Fencer' || f.key.indexOf('raedyn') !== -1 || f.key.indexOf('kaylan') !== -1) {
+      skipped++;
+      current++;
+      setTimeout(loadNext, 50);
+      return;
+    }
+
+    // Check cache
+    var cached = localStorage.getItem(FT_CACHE_PREFIX + f.key);
+    if(cached) {
+      skipped++;
+      current++;
+      setTimeout(loadNext, 50);
+      return;
+    }
+
+    fetchFencerProfileBatch(f.key, f.first, f.last, f.club, function(err) {
+      if(err) failed++; else loaded++;
+      current++;
+      setTimeout(loadNext, 600);
+    });
+  }
+
+  loadNext();
+}
+
+function fetchFencerProfileBatch(fencerKey, firstName, lastName, club, onDone) {
+  var searchUrl = 'https://www.fencingtracker.com/fencers?q=' + encodeURIComponent(lastName);
+  var proxySearch = FT_PROXY + encodeURIComponent(searchUrl);
+
+  fetch(proxySearch)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var profileUrl = findFencerUrlBatch(data.contents, firstName, lastName);
+      if(!profileUrl) { onDone('not_found'); return; }
+      return fetch(FT_PROXY + encodeURIComponent(profileUrl));
+    })
+    .then(function(r) { if(r) return r.json(); })
+    .then(function(data) {
+      if(!data || !data.contents) { onDone('no_data'); return; }
+      var bouts = parseFTBouts(data.contents);
+      var profile = computeFencerProfileBatch(fencerKey, firstName, lastName, club, bouts);
+      profile.fetched_at = new Date().toISOString();
+      localStorage.setItem(FT_CACHE_PREFIX + fencerKey, JSON.stringify(profile));
+      onDone(null);
+    })
+    .catch(function() { onDone('fetch_error'); });
+}
+
+function findFencerUrlBatch(html, firstName, lastName) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  var links = doc.querySelectorAll('a[href*="/fencer/"]');
+  var best = null;
+  var bestScore = 0;
+  var i;
+  for(i = 0; i < links.length; i++) {
+    var text = links[i].textContent.toLowerCase();
+    var href = links[i].getAttribute('href') || '';
+    if(href.indexOf('/fencer/') === -1) continue;
+    var score = 0;
+    if(text.indexOf(lastName.toLowerCase()) !== -1) score += 3;
+    if(text.indexOf(firstName.toLowerCase()) !== -1) score += 2;
+    if(score > bestScore) {
+      bestScore = score;
+      best = href.indexOf('http') === 0 ? href : 'https://www.fencingtracker.com' + href;
+    }
+  }
+  return bestScore >= 3 ? best : null;
+}
+
+function computeFencerProfileBatch(key, firstName, lastName, club, bouts) {
+  var wins = 0, losses = 0, i;
+  for(i = 0; i < bouts.length; i++) { if(bouts[i].result === 'W') wins++; else losses++; }
+  var winPct = bouts.length > 0 ? Math.round(wins / bouts.length * 100) : 0;
+
+  var poolBouts = [], deBouts = [];
+  for(i = 0; i < bouts.length; i++) {
+    if(bouts[i].bout_type === 'pool') poolBouts.push(bouts[i]);
+    else deBouts.push(bouts[i]);
+  }
+  var poolWins = 0, deWins = 0;
+  for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolWins++; }
+  for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deWins++; }
+
+  var recent10 = bouts.slice(-10);
+  var recentWins = 0;
+  for(i = 0; i < recent10.length; i++) { if(recent10[i].result === 'W') recentWins++; }
+  var recentPct = recent10.length > 0 ? Math.round(recentWins / recent10.length * 100) : 0;
+  var trendDelta = recentPct - winPct;
+  var trend = trendDelta >= 10 ? 'hot' : trendDelta <= -10 ? 'cold' : 'stable';
+
+  var totalTF = 0, totalTA = 0;
+  for(i = 0; i < bouts.length; i++) { totalTF += bouts[i].score_self; totalTA += bouts[i].score_opp; }
+
+  var clubMap = {};
+  for(i = 0; i < bouts.length; i++) {
+    var c = bouts[i].opp_club || 'Unknown';
+    if(!clubMap[c]) clubMap[c] = {w:0, l:0};
+    if(bouts[i].result === 'W') clubMap[c].w++; else clubMap[c].l++;
+  }
+
+  var last5 = bouts.slice(-5).reverse().map(function(b) {
+    return { date:b.date, opp:b.opp_last, club:b.opp_club, result:b.result,
+      score:b.score_self+'-'+b.score_opp, event:b.event, type:b.bout_type };
+  });
+
+  var vsTsui = [];
+  for(i = 0; i < bouts.length; i++) {
+    if(bouts[i].opp_last && bouts[i].opp_last.toLowerCase().indexOf('tsui') !== -1) {
+      vsTsui.push(bouts[i]);
+    }
+  }
+
+  return {
+    key:key, first:firstName, last:lastName, club:club,
+    total_bouts:bouts.length, wins:wins, losses:losses, win_pct:winPct,
+    pool_win_pct: poolBouts.length > 0 ? Math.round(poolWins/poolBouts.length*100) : 0,
+    de_win_pct: deBouts.length > 0 ? Math.round(deWins/deBouts.length*100) : 0,
+    pool_bouts:poolBouts.length, de_bouts:deBouts.length,
+    recent_win_pct:recentPct, trend:trend, trend_delta:trendDelta,
+    total_tf:totalTF, total_ta:totalTA, touch_diff:totalTF-totalTA,
+    club_stats:clubMap, last_5:last5, vs_tsui:vsTsui, bouts:bouts
+  };
+}
+
+
+/* ================================================================
+   PER-FENCER LOAD + INLINE PROFILE STATS IN INTEL CARDS
+   ================================================================ */
+
+function loadSingleFencer(key) {
+  var f = getFencerByKey(key);
+  if(!f) return;
+  var btn = document.getElementById('load-btn-' + key);
+  if(btn) { btn.textContent = '⏳ Loading...'; btn.disabled = true; }
+
+  fetchFencerProfileBatch(key, f.first, f.last, f.club, function(err) {
+    if(err) {
+      if(btn) { btn.textContent = '❌ Not found on FT'; btn.disabled = false; }
+      return;
+    }
+    var profile = JSON.parse(localStorage.getItem(FT_CACHE_PREFIX + key) || 'null');
+    if(btn) btn.textContent = '✅ ' + (profile ? profile.total_bouts : 0) + ' bouts loaded';
+    if(profile) renderFencerProfileInCard(key, profile);
+    showToast((f.first || '') + ' ' + (f.last || '') + ' loaded');
+  });
+}
+
+function getFencerByKey(key) {
+  var all = JNR_FIELD.concat(Y12_FIELD).concat(Y14_FIELD);
+  var i;
+  for(i = 0; i < all.length; i++) { if(all[i].key === key) return all[i]; }
+  return null;
+}
+
+function renderFencerProfileInCard(key, profile) {
+  var container = document.getElementById('profile-data-' + key);
+  if(!container) return;
+  if(!profile || profile.total_bouts === 0) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:6px 0;">No bout history found.</div>';
+    return;
+  }
+
+  function pctBar(pct) {
+    var filled = Math.round(pct / 10);
+    var bar = '';
+    var i;
+    for(i = 0; i < 10; i++) bar += i < filled ? '█' : '░';
+    return bar;
+  }
+  function pctColor(pct) { return pct >= 70 ? 'var(--green)' : pct >= 50 ? 'var(--gold)' : 'var(--text2)'; }
+
+  var trendColor = profile.trend === 'hot' ? 'var(--green)' : profile.trend === 'cold' ? 'var(--red)' : 'var(--gold)';
+  var trendArrow = profile.trend === 'hot' ? '↑' : profile.trend === 'cold' ? '↓' : '→';
+
+  var html = '<div style="border-top:1px solid rgba(201,168,76,.15);margin-top:10px;padding-top:10px;">';
+  html += '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:13px;letter-spacing:0.06em;color:var(--gold);margin-bottom:6px;">CAREER STATS</div>';
+  html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:13px;margin-bottom:8px;">';
+  html += '<span style="color:' + pctColor(profile.win_pct) + ';">' + profile.wins + 'W–' + profile.losses + 'L  ' + profile.win_pct + '%  ' + pctBar(profile.win_pct) + '</span></div>';
+
+  // Pool/DE split
+  html += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
+  html += '<div style="flex:1;background:var(--bg);padding:6px;border-radius:6px;text-align:center;">';
+  html += '<div style="font-size:10px;color:var(--text3);">POOL</div>';
+  html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;color:' + pctColor(profile.pool_win_pct) + ';">' + profile.pool_win_pct + '%</div>';
+  html += '<div style="font-size:10px;color:var(--text3);">' + profile.pool_bouts + ' bouts</div></div>';
+  html += '<div style="flex:1;background:var(--bg);padding:6px;border-radius:6px;text-align:center;">';
+  html += '<div style="font-size:10px;color:var(--text3);">DE</div>';
+  html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;color:' + pctColor(profile.de_win_pct) + ';">' + profile.de_win_pct + '%</div>';
+  html += '<div style="font-size:10px;color:var(--text3);">' + profile.de_bouts + ' bouts</div></div></div>';
+
+  // Trend
+  html += '<div style="font-size:12px;margin-bottom:8px;">Trend: <span style="color:' + trendColor + ';font-weight:700;">' + trendArrow + ' ' + profile.trend.charAt(0).toUpperCase() + profile.trend.slice(1) + '</span>';
+  if(profile.trend_delta) html += ' <span style="color:var(--text3);">(' + (profile.trend_delta > 0 ? '+' : '') + profile.trend_delta + 'pp)</span>';
+  html += '</div>';
+
+  // Last 5
+  if(profile.last_5 && profile.last_5.length > 0) {
+    html += '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;letter-spacing:0.06em;color:var(--gold);margin-bottom:4px;">LAST 5</div>';
+    var bi;
+    for(bi = 0; bi < profile.last_5.length; bi++) {
+      var b = profile.last_5[bi];
+      var rColor = b.result === 'W' ? 'var(--green)' : 'var(--red)';
+      html += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">';
+      html += '<span style="color:' + rColor + ';font-weight:700;font-family:\'JetBrains Mono\',monospace;">' + b.result + ' ' + b.score + '</span>';
+      html += '<span style="color:var(--text3);">vs ' + b.opp + '  ' + (b.date || '') + '</span></div>';
+    }
+  }
+
+  // H2H vs Tsui
+  var h2hHtml = buildH2HSectionInline(profile.last);
+  if(h2hHtml) html += h2hHtml;
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function buildH2HSectionInline(oppLastName) {
+  if(!oppLastName || oppLastName === 'Fencer') return '';
+  var raedynBouts = JSON.parse(localStorage.getItem('ft_bouts_raedyn') || '[]');
+  var kaylanBouts = JSON.parse(localStorage.getItem('ft_bouts_kaylan') || '[]');
+
+  var rMatches = [], kMatches = [];
+  var i;
+  for(i = 0; i < raedynBouts.length; i++) {
+    if(raedynBouts[i].opp_last && raedynBouts[i].opp_last.toLowerCase() === oppLastName.toLowerCase()) {
+      rMatches.push(raedynBouts[i]);
+    }
+  }
+  for(i = 0; i < kaylanBouts.length; i++) {
+    if(kaylanBouts[i].opp_last && kaylanBouts[i].opp_last.toLowerCase() === oppLastName.toLowerCase()) {
+      kMatches.push(kaylanBouts[i]);
+    }
+  }
+  if(rMatches.length === 0 && kMatches.length === 0) return '';
+
+  var html = '<div style="border-top:1px solid rgba(201,168,76,.15);margin-top:8px;padding-top:8px;">';
+  html += '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:12px;letter-spacing:0.06em;color:var(--gold);margin-bottom:4px;">OUR HISTORY</div>';
+
+  function renderH2H(name, bouts) {
+    if(bouts.length === 0) return '<div style="font-size:11px;color:var(--text3);">' + name + ': No bouts</div>';
+    var w = 0;
+    for(var j = 0; j < bouts.length; j++) { if(bouts[j].result === 'W') w++; }
+    var wColor = w > bouts.length - w ? 'var(--green)' : 'var(--red)';
+    var txt = '<div style="font-size:12px;"><span style="color:var(--text2);">' + name + ':</span> <span style="color:' + wColor + ';font-weight:700;">' + w + 'W–' + (bouts.length - w) + 'L</span></div>';
+    var last = bouts[bouts.length - 1];
+    if(last) {
+      txt += '<div style="font-size:11px;color:var(--text3);padding-left:8px;">Last: ' + last.result + ' ' + last.score_self + '-' + last.score_opp + ' ' + (last.event || '') + '</div>';
+    }
+    return txt;
+  }
+
+  html += renderH2H('Raedyn', rMatches);
+  html += renderH2H('Kaylan', kMatches);
+  html += '</div>';
+  return html;
+}
+
+
+/* ================================================================
+   MANUAL BOUT ENTRY
+   ================================================================ */
+
+var manualType = 'pool';
+var manualBoutNum = 1;
+var manualFT = 'unknown';
+
+function adjustManualScore(who, delta) {
+  var el = document.getElementById('manual-score-' + who);
+  var val = parseInt(el.textContent) + delta;
+  if(val < 0) val = 0;
+  el.textContent = val;
+}
+
+function setManualType(type) {
+  manualType = type;
+  document.getElementById('manual-type-pool').classList.toggle('active', type === 'pool');
+  document.getElementById('manual-type-de').classList.toggle('active', type === 'de');
+  document.getElementById('manual-bout-num-group').style.display = type === 'pool' ? 'block' : 'none';
+}
+
+function setManualBoutNum(n) {
+  manualBoutNum = n;
+  var i;
+  for(i = 1; i <= 7; i++) {
+    var el = document.getElementById('manual-bn-' + i);
+    if(el) el.classList.toggle('active', i === n);
+  }
+}
+
+function setManualFT(who) {
+  manualFT = who;
+  document.getElementById('manual-ft-me').classList.toggle('active', who === 'you');
+  document.getElementById('manual-ft-them').classList.toggle('active', who === 'opp');
+  document.getElementById('manual-ft-unk').classList.toggle('active', who === 'unknown');
+}
+
+function saveManualBout() {
+  var opp = document.getElementById('manual-opp').value.trim();
+  if(!opp) { showToast('Enter opponent name', 'warn'); return; }
+  var ss = parseInt(document.getElementById('manual-score-self').textContent);
+  var so = parseInt(document.getElementById('manual-score-opp').textContent);
+
+  var bout = {
+    id: Date.now(),
+    fencer: ACTIVE_FENCER,
+    date: new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}),
+    opponent: opp,
+    event_type: manualType,
+    bout_num: manualBoutNum,
+    score_self: ss,
+    score_opp: so,
+    result: ss > so ? 'W' : (so > ss ? 'L' : 'L'),
+    first_touch_scorer: manualFT,
+    first_touch_at: 0,
+    overtime: false,
+    duration_seconds: 0,
+    off_target_self: 0,
+    off_target_opp: 0,
+    touches: [],
+    manual_entry: true,
+    timestamp: Date.now()
+  };
+
+  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
+  var bouts = JSON.parse(localStorage.getItem(key) || '[]');
+  bouts.push(bout);
+  localStorage.setItem(key, JSON.stringify(bouts));
+
+  showToast('Bout saved ✓');
+  updateHomeStatus();
+  updateLivePoolAnalytics();
+
+  // Reset form
+  document.getElementById('manual-opp').value = '';
+  document.getElementById('manual-score-self').textContent = '0';
+  document.getElementById('manual-score-opp').textContent = '0';
+  if(manualType === 'pool' && manualBoutNum < 7) setManualBoutNum(manualBoutNum + 1);
+}
+
+
+/* ================================================================
+   LIVE POOL ANALYTICS
+   ================================================================ */
+
+function updateLivePoolAnalytics() {
+  var bouts = JSON.parse(localStorage.getItem('ft_live_bouts_' + ACTIVE_FENCER) || '[]');
+  var today = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  var todayBouts = bouts.filter(function(b) {
+    var d = b.date || new Date(b.timestamp).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    return d === today;
+  });
+  var poolBouts = todayBouts.filter(function(b) { return b.event_type === 'pool'; });
+
+  // Render in both Timer tab and Pool tab
+  var containers = [
+    document.getElementById('live-pool-analytics'),
+    document.getElementById('pool-live-analytics')
+  ];
+
+  var ci;
+  for(ci = 0; ci < containers.length; ci++) {
+    var container = containers[ci];
+    if(!container) continue;
+
+    if(poolBouts.length === 0) {
+      container.innerHTML = '';
+      continue;
+    }
+
+    var wins = 0, ft = 0, totalTF = 0, totalTA = 0;
+    var i;
+    for(i = 0; i < poolBouts.length; i++) {
+      if(poolBouts[i].result === 'W') wins++;
+      if(poolBouts[i].first_touch_scorer === 'you') ft++;
+      totalTF += poolBouts[i].score_self || 0;
+      totalTA += poolBouts[i].score_opp || 0;
+    }
+    var diff = totalTF - totalTA;
+    var ftPct = Math.round(ft / poolBouts.length * 100);
+
+    var html = '<div class="card" style="border-color:var(--gold);margin-top:12px;">';
+    html += '<div class="card-header">📊 Live Pool Analytics</div>';
+    html += '<div style="display:flex;justify-content:space-around;text-align:center;margin-bottom:8px;">';
+
+    html += '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:700;">' + wins + '–' + (poolBouts.length - wins) + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">RECORD</div></div>';
+
+    html += '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:700;color:' + (ftPct >= 70 ? 'var(--green)' : ftPct < 40 ? 'var(--red)' : 'var(--gold)') + ';">' + ftPct + '%</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">1ST TOUCH</div></div>';
+
+    html += '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:700;color:' + (diff >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (diff >= 0 ? '+' : '') + diff + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">TOUCH DIFF</div></div>';
+
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--text3);text-align:center;">' + poolBouts.length + ' pool bouts today • ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) + '</div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
+}
+
+
+/* ================================================================
+   ENHANCED INTEL COMPACT CARDS — WITH LOAD BUTTON + INLINE STATS
+   ================================================================ */
+
+// Override the existing renderOppListCompact to add load buttons and inline stats
+var origRenderOppListCompact = renderOppListCompact;
+
+renderOppListCompact = function() {
+  var field = EVENT_MAP[ACTIVE_EVENT].field;
+  var container = document.getElementById('intel-opp-list');
+  var bouts = JSON.parse(localStorage.getItem('ft_bouts_' + ACTIVE_FENCER) || '[]');
+  var searchVal = (document.getElementById('intel-search').value || '').toLowerCase();
+  var html = '';
+  var count = 0;
+  var i;
+
+  // Update load div label
+  var loadLabel = document.getElementById('intel-load-div-label');
+  if(loadLabel) loadLabel.textContent = ACTIVE_EVENT.toUpperCase();
+
+  for(i = 0; i < field.length; i++) {
+    var opp = field[i];
+    if(opp.key === 'raedyn_jnr' || opp.key === 'raedyn_y14' ||
+       opp.key === 'kaylan_y12' || opp.key === 'kaylan_y14') continue;
+    if(searchVal && opp.name.toLowerCase().indexOf(searchVal) === -1 &&
+       opp.club.toLowerCase().indexOf(searchVal) === -1 &&
+       (opp.first || '').toLowerCase().indexOf(searchVal) === -1 &&
+       (opp.last || '').toLowerCase().indexOf(searchVal) === -1) continue;
+
+    count++;
+    var trendIcon = '';
+    if(opp.trend === 'hot') trendIcon = '🔥';
+    else if(opp.trend === 'dominant') trendIcon = '👑';
+    else if(opp.trend === 'cold') trendIcon = '❄️';
+
+    var priorBouts = findPriorBouts(bouts, opp.last);
+    var priorStr = '';
+    if(priorBouts.length > 0) {
+      var wins = 0;
+      var j;
+      for(j = 0; j < priorBouts.length; j++) { if(priorBouts[j].result === 'W') wins++; }
+      priorStr = ' • ' + wins + 'W-' + (priorBouts.length - wins) + 'L';
+    }
+
+    // Check for cached FT profile
+    var cachedProfile = null;
+    var cachedRaw = localStorage.getItem(FT_CACHE_PREFIX + opp.key);
+    if(cachedRaw) { try { cachedProfile = JSON.parse(cachedRaw); } catch(e) {} }
+    var hasProfile = cachedProfile && cachedProfile.total_bouts > 0;
+    var profileBadge = hasProfile ? ' <span style="font-size:10px;color:var(--green);">✓' + cachedProfile.total_bouts + 'b</span>' : '';
+
+    if(expandedOppKey === opp.key) {
+      // Expanded view
+      html += '<div class="opp-card">';
+      html += '<div class="opp-card-top" style="cursor:pointer;" onclick="expandedOppKey=\'\';renderOppListCompact();">';
+      html += '<div><div class="opp-name">#' + opp.seed + ' ' + opp.name + profileBadge + '</div>';
+      html += '<div class="opp-meta">' + opp.rating + ' • ' + opp.club + (opp.fatigue ? ' • ⚡ 3 events' : '') + '</div></div>';
+      html += '<span class="opp-badge ' + THREAT_BADGE_CLASS[opp.threat_class] + '">' + THREAT_LABELS[opp.threat_class] + '</span>';
+      html += '</div>';
+      if(opp.rating_intel) html += '<div class="opp-intel">' + opp.rating_intel + '</div>';
+      if(opp.trend_note) html += '<div class="opp-trend trend-' + opp.trend + '">' + trendIcon + ' ' + opp.trend_note + '</div>';
+      if(opp.tactic) html += '<div style="font-size:13px;margin-top:6px;padding:8px;background:var(--bg3);border-radius:6px;border-left:2px solid var(--gold);">→ ' + opp.tactic + '</div>';
+      if(priorBouts.length > 0) {
+        var lastB = priorBouts[priorBouts.length - 1];
+        html += '<div class="prior-bout-badge">📋 ' + priorBouts.length + ' prior — ' + priorStr.replace(' • ', '') + ' (last: ' + lastB.score_self + '-' + lastB.score_opp + ')</div>';
+      }
+
+      // Load button or inline profile stats
+      if(hasProfile) {
+        html += '<div id="profile-data-' + opp.key + '"></div>';
+        // We'll render inline after DOM updates
+      } else if(opp.last !== 'Fencer') {
+        html += '<div style="margin-top:8px;">';
+        html += '<button class="btn-sm" id="load-btn-' + opp.key + '" style="background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-border);" onclick="event.stopPropagation();loadSingleFencer(\'' + opp.key + '\')">📥 Load Bout History</button>';
+        html += '<div id="profile-data-' + opp.key + '" style="margin-top:6px;"></div>';
+        html += '</div>';
+      }
+
+      html += '<div style="display:flex;gap:8px;margin-top:8px;">';
+      html += '<button class="btn-sm" style="flex:1;background:var(--gold);color:#070B15;" onclick="event.stopPropagation();openProfileDrawer(\'' + ACTIVE_EVENT + '\',' + i + ')">Full Profile →</button>';
+      html += '<button class="btn-sm" style="background:var(--bg3);color:var(--text2);border:1px solid var(--gold-border);" onclick="expandedOppKey=\'\';renderOppListCompact();">▲ Collapse</button>';
+      html += '</div>';
+      html += '</div>';
+    } else {
+      // Compact view
+      html += '<div class="opp-compact" onclick="expandedOppKey=\'' + opp.key + '\';renderOppListCompact();">';
+      html += '<div class="opp-compact-name">#' + opp.seed + ' ' + opp.name + profileBadge + ' <span style="font-weight:400;color:var(--text2);font-size:11px;">' + opp.rating + ' ' + opp.club + priorStr + '</span></div>';
+      html += '<div class="opp-compact-right">';
+      if(trendIcon) html += '<span class="opp-compact-trend">' + trendIcon + '</span>';
+      html += '<span class="opp-badge ' + THREAT_BADGE_CLASS[opp.threat_class] + '" style="font-size:10px;padding:2px 6px;">' + THREAT_LABELS[opp.threat_class] + '</span>';
+      html += '<span class="opp-compact-arrow">›</span>';
+      html += '</div></div>';
+    }
+  }
+
+  var countEl = document.getElementById('intel-match-count');
+  if(countEl) countEl.textContent = count + ' fencer' + (count !== 1 ? 's' : '');
+
+  container.innerHTML = html || '<div style="text-align:center;color:var(--text3);padding:20px;">No opponents found</div>';
+
+  // Render cached profiles into expanded cards
+  if(expandedOppKey) {
+    var cachedData = localStorage.getItem(FT_CACHE_PREFIX + expandedOppKey);
+    if(cachedData) {
+      try {
+        var p = JSON.parse(cachedData);
+        if(p && p.total_bouts > 0) renderFencerProfileInCard(expandedOppKey, p);
+      } catch(e) {}
+    }
+  }
+};
+
+
+/* ================================================================
+   ENHANCED SETTINGS — STORAGE + CACHED PROFILES
+   ================================================================ */
+
+function getStorageSize() {
+  var total = 0;
+  var i;
+  for(i = 0; i < localStorage.length; i++) {
+    var k = localStorage.key(i);
+    total += ((localStorage.getItem(k) || '').length + k.length) * 2;
+  }
+  return Math.round(total / 1024);
+}
+
+function countCachedProfiles() {
+  var count = 0;
+  var i;
+  for(i = 0; i < localStorage.length; i++) {
+    if(localStorage.key(i).indexOf(FT_CACHE_PREFIX) === 0) count++;
+  }
+  return count;
+}
+
+function clearCachedProfiles() {
+  var keys = [];
+  var i;
+  for(i = 0; i < localStorage.length; i++) {
+    if(localStorage.key(i).indexOf(FT_CACHE_PREFIX) === 0) keys.push(localStorage.key(i));
+  }
+  for(i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
+  showToast(keys.length + ' cached profiles cleared');
+  openSettings();
+}
+
+
+/* ================================================================
+   HOOKUP: UPDATE ANALYTICS AFTER BOUTS
+   ================================================================ */
+
+// Patch endBout to also update analytics
+var origEndBout = endBout;
+endBout = function() {
+  origEndBout();
+  updateLivePoolAnalytics();
+};
 
 
 /* ================================================================
