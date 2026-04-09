@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "foiliq-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "C:/Users/ricky/foiliq-precision2026"],
+      "port": 8080
+    },
+    {
+      "name": "foiliq-npx-serve",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "C:/Users/ricky/foiliq-precision2026", "-l", "3000", "--no-clipboard"],
+      "port": 3000
+    }
+  ]
+}
