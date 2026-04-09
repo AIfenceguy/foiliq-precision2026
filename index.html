@@ -436,7 +436,9 @@ h3 { font-size: 20px; }
 .timer-clock {
   font-family: 'JetBrains Mono', monospace; font-size: 52px;
   font-weight: 700; color: var(--text); line-height: 1;
+  transition: color 0.3s;
 }
+.timer-clock.warning { color: var(--red); }
 .timer-state {
   font-size: 12px; font-weight: 600; color: var(--text2);
   letter-spacing: 0.08em; margin-top: 2px;
@@ -779,6 +781,78 @@ h3 { font-size: 20px; }
   font-size: 14px; color: var(--text2); text-align: center; margin-bottom: 16px;
 }
 
+/* ===== PROFILE DRAWER ===== */
+#profile-drawer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 180;
+  background: var(--bg); border-top: 2px solid var(--gold);
+  border-radius: 16px 16px 0 0;
+  max-height: 85vh; overflow-y: auto;
+  transform: translateY(100%); transition: transform 0.3s ease;
+  padding: 0 16px 16px; padding-bottom: calc(16px + var(--safe-bottom));
+}
+#profile-drawer.open { transform: translateY(0); }
+#profile-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 170;
+  background: rgba(0,0,0,0.6); display: none;
+}
+#profile-drawer-backdrop.open { display: block; }
+.drawer-handle {
+  width: 40px; height: 4px; background: var(--text3); border-radius: 2px;
+  margin: 10px auto 12px;
+}
+.drawer-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 12px;
+}
+.drawer-name {
+  font-family: 'Bebas Neue', sans-serif; font-size: 28px;
+  letter-spacing: 0.04em; line-height: 1.1;
+}
+.drawer-meta { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.drawer-close {
+  background: var(--bg2); color: var(--text2); border: 1px solid var(--gold-border);
+  width: 36px; height: 36px; border-radius: 50%; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; min-height: 36px;
+}
+.drawer-section {
+  margin-bottom: 14px; padding-bottom: 14px;
+  border-bottom: 1px solid rgba(201,168,76,0.1);
+}
+.drawer-section:last-child { border-bottom: none; }
+.drawer-section-label {
+  font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+  letter-spacing: 0.06em; color: var(--gold); margin-bottom: 8px;
+}
+.drawer-stat-row {
+  display: flex; justify-content: space-between; padding: 4px 0;
+  font-size: 13px;
+}
+.drawer-stat-label { color: var(--text2); }
+.drawer-stat-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.drawer-bar-wrap {
+  background: var(--bg2); border-radius: 4px; height: 12px;
+  margin: 6px 0 4px; overflow: hidden;
+}
+.drawer-bar-fill {
+  height: 100%; border-radius: 4px; transition: width 0.4s ease;
+}
+.drawer-h2h {
+  background: var(--gold-dim); border: 1px solid var(--gold-border);
+  border-radius: 10px; padding: 12px; margin-bottom: 12px;
+}
+.drawer-h2h-title {
+  font-family: 'Bebas Neue', sans-serif; font-size: 14px;
+  color: var(--gold); letter-spacing: 0.06em; margin-bottom: 6px;
+}
+.drawer-h2h-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; font-size: 13px;
+}
+.drawer-h2h-name { font-weight: 600; }
+.drawer-h2h-record { font-family: 'JetBrains Mono', monospace; }
+.drawer-h2h-last { font-size: 11px; color: var(--text2); }
+
 /* ===== UTILITY ===== */
 .hidden { display: none !important; }
 .mb-8 { margin-bottom: 8px; }
@@ -892,7 +966,7 @@ h3 { font-size: 20px; }
     <h2 style="color:var(--gold);margin-bottom:12px;">Field Intel</h2>
     <div class="intel-event-tabs" id="intel-event-tabs"></div>
     <div id="intel-search-row" style="margin-bottom:12px;">
-      <input type="text" id="intel-search" placeholder="Search opponent..." oninput="filterIntel()">
+      <input type="text" id="intel-search" placeholder="🔍 Search fencers — first or last name..." oninput="filterIntel()">
     </div>
     <div id="intel-ref-section" class="card hidden">
       <div class="card-header">🏁 Referee Observation</div>
@@ -905,10 +979,18 @@ h3 { font-size: 20px; }
   <!-- TAB 3: POOL LOOKUP -->
   <div class="tab-panel" id="tab-pool">
     <h2 style="color:var(--gold);margin-bottom:12px;">Pool Lookup</h2>
+    <div style="margin-bottom:12px;">
+      <input type="text" id="pool-search" placeholder="🔍 Search fencers — first or last name..." oninput="poolSearchFencers()">
+      <div id="pool-search-results" class="hidden" style="margin-top:8px;"></div>
+      <div id="pool-search-count" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
+    </div>
     <div class="card">
       <div class="card-header">Enter Pool Fencers</div>
       <div id="pool-inputs"></div>
-      <button class="btn-outline" style="margin-top:8px;" onclick="fetchLivePool()">🌐 Fetch Live Pool from FencingTracker</button>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn-outline" style="flex:1;" onclick="fetchLivePool()">🌐 Fetch Live</button>
+        <button class="btn-gold" style="flex:1;" onclick="analyzePool()">Analyze Pool →</button>
+      </div>
     </div>
     <div id="pool-analysis" class="hidden">
       <div class="card">
@@ -916,6 +998,7 @@ h3 { font-size: 20px; }
         <div id="pool-results"></div>
       </div>
       <div id="pool-ref-note" class="hidden" style="font-size:13px;color:var(--text2);padding:10px;background:var(--bg2);border-radius:8px;margin-bottom:12px;"></div>
+      <button class="btn-outline" style="margin-bottom:12px;" onclick="getPoolTips()">🧠 Get AI Tips for This Pool</button>
       <div id="pool-tips" class="ai-card hidden">
         <div class="ai-card-label">5-MINUTE POOL TIPS</div>
         <div class="ai-card-body" id="pool-tips-body"></div>
@@ -1054,6 +1137,13 @@ h3 { font-size: 20px; }
 <!-- ==================== BOUT SUMMARY OVERLAY ==================== -->
 <div id="timer-summary">
   <div id="timer-summary-content"></div>
+</div>
+
+<!-- ==================== PROFILE DRAWER ==================== -->
+<div id="profile-drawer-backdrop" onclick="closeProfileDrawer()"></div>
+<div id="profile-drawer">
+  <div class="drawer-handle"></div>
+  <div id="profile-drawer-content"></div>
 </div>
 
 <!-- ==================== STATUS TOAST ==================== -->
@@ -1619,9 +1709,11 @@ function renderOppList() {
     // Skip self
     if(opp.key === 'raedyn_jnr' || opp.key === 'raedyn_y14' ||
        opp.key === 'kaylan_y12' || opp.key === 'kaylan_y14') continue;
-    // Search filter
+    // Search filter — matches first, last, name, or club
     if(searchVal && opp.name.toLowerCase().indexOf(searchVal) === -1 &&
-       opp.club.toLowerCase().indexOf(searchVal) === -1) continue;
+       opp.club.toLowerCase().indexOf(searchVal) === -1 &&
+       (opp.first || '').toLowerCase().indexOf(searchVal) === -1 &&
+       (opp.last || '').toLowerCase().indexOf(searchVal) === -1) continue;
 
     // Prior bout badge
     var priorBouts = findPriorBouts(bouts, opp.last);
@@ -1639,7 +1731,7 @@ function renderOppList() {
     else if(opp.trend === 'dominant') trendIcon = '👑';
     else if(opp.trend === 'cold') trendIcon = '❄️';
 
-    html += '<div class="opp-card">';
+    html += '<div class="opp-card" style="cursor:pointer;" onclick="openProfileDrawer(\''+ACTIVE_EVENT+'\','+i+')">';
     html += '<div class="opp-card-top">';
     html += '<div><div class="opp-name">#'+opp.seed+' '+opp.name+'</div>';
     html += '<div class="opp-meta">'+opp.rating+' • '+opp.club+(opp.fatigue?' • ⚡ 3 events':'')+'</div></div>';
@@ -1730,14 +1822,22 @@ function analyzePool() {
       for(j = 0; j < priorBouts.length; j++) { if(priorBouts[j].result === 'W') wins++; }
       priorHtml = '<div class="prior-bout-badge" style="margin-top:4px;">📋 '+priorBouts.length+' prior — '+wins+'W '+(priorBouts.length-wins)+'L</div>';
     }
-    resultsHtml += '<div class="pool-fencer-row"><div>';
+    var clickAttr = '';
+    if(matched) {
+      var fieldArr = EVENT_MAP[ACTIVE_EVENT].field;
+      var matchIdx = -1;
+      var fi;
+      for(fi = 0; fi < fieldArr.length; fi++) { if(fieldArr[fi].key === matched.key) { matchIdx = fi; break; } }
+      if(matchIdx >= 0) clickAttr = ' style="cursor:pointer;" onclick="openProfileDrawer(\''+ACTIVE_EVENT+'\','+matchIdx+')"';
+    }
+    resultsHtml += '<div class="pool-fencer-row"'+clickAttr+'><div>';
     resultsHtml += '<div class="pool-fencer-name">'+n+'</div>';
     if(matched) {
       resultsHtml += '<div style="font-size:12px;color:var(--text2);">'+matched.rating+' • '+matched.club+'</div>';
       resultsHtml += '<span class="opp-badge '+THREAT_BADGE_CLASS[matched.threat_class]+'" style="margin-top:4px;display:inline-block;">'+THREAT_LABELS[matched.threat_class]+'</span>';
     }
     resultsHtml += priorHtml;
-    resultsHtml += '</div></div>';
+    resultsHtml += '</div>'+(matched?'<span style="color:var(--gold);font-size:18px;">→</span>':'')+'</div>';
   }
 
   document.getElementById('pool-results').innerHTML = resultsHtml;
@@ -1772,6 +1872,8 @@ function matchOpponent(field, name) {
 var timerState = {
   running: false,
   startTime: 0,
+  remaining: 180,
+  totalTime: 180,
   elapsed: 0,
   pausedAt: 0,
   intervalId: null,
@@ -1790,6 +1892,8 @@ var timerState = {
 function setTimerType(type) {
   timerState.type = type;
   timerState.maxScore = type === 'pool' ? 5 : 15;
+  timerState.totalTime = type === 'pool' ? 180 : 540;
+  timerState.remaining = timerState.totalTime;
   document.getElementById('type-pool').classList.toggle('active', type === 'pool');
   document.getElementById('type-de').classList.toggle('active', type === 'de');
   document.getElementById('bout-num-group').style.display = type === 'pool' ? 'block' : 'none';
@@ -1816,6 +1920,8 @@ function startBout() {
   timerState.otOpp = 0;
   timerState.touches = [];
   timerState.touchCount = 0;
+  timerState.totalTime = timerState.type === 'pool' ? 180 : 540;
+  timerState.remaining = timerState.totalTime;
   timerState.elapsed = 0;
   timerState.running = false;
   timerState.startTime = 0;
@@ -1832,7 +1938,8 @@ function startBout() {
   document.getElementById('tap-opp-score').textContent = '0';
   document.getElementById('tap-you-label').textContent = f.first.toUpperCase();
   document.getElementById('tap-opp-label').textContent = oppName.toUpperCase();
-  document.getElementById('timer-clock').textContent = '0:00';
+  document.getElementById('timer-clock').textContent = formatTime(timerState.remaining);
+  document.getElementById('timer-clock').classList.remove('warning');
   document.getElementById('timer-state').textContent = 'READY';
   document.getElementById('timer-state').classList.remove('running');
   document.getElementById('timer-play-btn').textContent = '▶ START';
@@ -1849,12 +1956,7 @@ function toggleTimer() {
   if(!timerState.running) {
     // Start or resume
     timerState.running = true;
-    if(timerState.startTime === 0) {
-      timerState.startTime = Date.now();
-    } else {
-      // Resume from pause — adjust start time
-      timerState.startTime = Date.now() - timerState.elapsed * 1000;
-    }
+    timerState.startTime = Date.now();
     timerState.intervalId = setInterval(updateTimerClock, 100);
     document.getElementById('timer-state').textContent = 'RUNNING';
     document.getElementById('timer-state').classList.add('running');
@@ -1864,7 +1966,10 @@ function toggleTimer() {
     // Pause
     timerState.running = false;
     clearInterval(timerState.intervalId);
-    timerState.pausedAt = timerState.elapsed;
+    // Save remaining time at pause
+    var elapsedSinceLast = (Date.now() - timerState.startTime) / 1000;
+    timerState.remaining = Math.max(0, timerState.remaining - elapsedSinceLast);
+    timerState.elapsed = timerState.totalTime - timerState.remaining;
     document.getElementById('timer-state').textContent = 'PAUSED';
     document.getElementById('timer-state').classList.remove('running');
     document.getElementById('timer-play-btn').textContent = '▶ RESUME';
@@ -1874,8 +1979,25 @@ function toggleTimer() {
 
 function updateTimerClock() {
   if(!timerState.running) return;
-  timerState.elapsed = (Date.now() - timerState.startTime) / 1000;
-  document.getElementById('timer-clock').textContent = formatTime(timerState.elapsed);
+  var elapsedSinceLast = (Date.now() - timerState.startTime) / 1000;
+  var currentRemaining = Math.max(0, timerState.remaining - elapsedSinceLast);
+  timerState.elapsed = timerState.totalTime - currentRemaining;
+  var clockEl = document.getElementById('timer-clock');
+  clockEl.textContent = formatTime(currentRemaining);
+  if(currentRemaining <= 30) {
+    clockEl.classList.add('warning');
+  }
+  if(currentRemaining <= 0) {
+    // Time expired
+    timerState.running = false;
+    clearInterval(timerState.intervalId);
+    timerState.remaining = 0;
+    timerState.elapsed = timerState.totalTime;
+    document.getElementById('timer-state').textContent = 'TIME';
+    document.getElementById('timer-state').classList.remove('running');
+    document.getElementById('timer-play-btn').textContent = '▶ RESUME';
+    document.getElementById('timer-play-btn').classList.remove('paused');
+  }
 }
 
 function formatTime(secs) {
@@ -1973,6 +2095,11 @@ function endBoutEarly() {
 }
 
 function endBout() {
+  if(timerState.running) {
+    var elapsedSinceLast = (Date.now() - timerState.startTime) / 1000;
+    timerState.remaining = Math.max(0, timerState.remaining - elapsedSinceLast);
+    timerState.elapsed = timerState.totalTime - timerState.remaining;
+  }
   timerState.running = false;
   if(timerState.intervalId) clearInterval(timerState.intervalId);
 
@@ -1985,7 +2112,7 @@ function endBout() {
     score_self: timerState.scoreYou,
     score_opp: timerState.scoreOpp,
     result: timerState.scoreYou > timerState.scoreOpp ? 'W' : 'L',
-    duration_seconds: Math.round(timerState.elapsed),
+    duration_seconds: Math.round(timerState.totalTime - timerState.remaining),
     off_target_self: timerState.otYou,
     off_target_opp: timerState.otOpp,
     first_touch_scorer: getFirstTouchScorer(),
@@ -3225,6 +3352,466 @@ function callClaude(userPrompt, callback) {
   })
   .catch(function(err) {
     callback('Connection error: ' + err.message + '. Check your internet and API key.');
+  });
+}
+
+
+/* ================================================================
+   PROFILE DRAWER
+   ================================================================ */
+
+function openProfileDrawer(evtKey, idx) {
+  var field = EVENT_MAP[evtKey].field;
+  var opp = field[idx];
+  if(!opp) return;
+
+  var html = '';
+  html += '<div class="drawer-header">';
+  html += '<div><div class="drawer-name">'+opp.name+'</div>';
+  html += '<div class="drawer-meta">'+opp.rating+' • '+opp.club+' • '+(opp.hand === 'R' ? 'Right' : 'Left')+' handed</div>';
+  html += '<span class="opp-badge '+THREAT_BADGE_CLASS[opp.threat_class]+'" style="margin-top:6px;display:inline-block;">'+THREAT_LABELS[opp.threat_class]+'</span>';
+  html += '</div>';
+  html += '<button class="drawer-close" onclick="closeProfileDrawer()">✕</button>';
+  html += '</div>';
+
+  // Rating intel section
+  if(opp.rating_intel || opp.trend_note) {
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label">RATING INTEL</div>';
+    if(opp.rating_intel) html += '<div style="font-size:13px;line-height:1.5;margin-bottom:4px;">'+opp.rating_intel+'</div>';
+    if(opp.trend_note) {
+      var trendIcon = '';
+      if(opp.trend === 'hot') trendIcon = '🔥 ';
+      else if(opp.trend === 'dominant') trendIcon = '👑 ';
+      else if(opp.trend === 'cold') trendIcon = '❄️ ';
+      html += '<div style="font-size:13px;color:var(--text2);">'+trendIcon+opp.trend_note+'</div>';
+    }
+    if(opp.fatigue) html += '<div style="font-size:12px;color:var(--red);margin-top:4px;">⚡ Fencing 3 events this weekend</div>';
+    html += '</div>';
+  }
+
+  // Tactic
+  if(opp.tactic) {
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label">TACTICAL APPROACH</div>';
+    html += '<div style="font-size:14px;line-height:1.5;padding:10px;background:var(--bg2);border-radius:8px;border-left:3px solid var(--gold);">→ '+opp.tactic+'</div>';
+    html += '</div>';
+  }
+
+  // Cross-reference: our fencers vs this opponent
+  html += buildCrossRefSection(opp);
+
+  // Cached profile data
+  var cached = localStorage.getItem('ft_profile_'+opp.key);
+  if(cached) {
+    html += renderProfileStats(JSON.parse(cached));
+    html += '<button class="btn-outline btn-sm" style="margin-top:8px;" onclick="loadOppProfile(\''+evtKey+'\','+idx+')">↻ Refresh from FencingTracker</button>';
+  } else {
+    html += '<div class="drawer-section">';
+    html += '<button class="btn-gold" id="drawer-load-btn" onclick="loadOppProfile(\''+evtKey+'\','+idx+')">Load Bout History from FencingTracker →</button>';
+    html += '<div id="drawer-profile-data"></div>';
+    html += '</div>';
+  }
+
+  document.getElementById('profile-drawer-content').innerHTML = html;
+  document.getElementById('profile-drawer').classList.add('open');
+  document.getElementById('profile-drawer-backdrop').classList.add('open');
+}
+
+function closeProfileDrawer() {
+  document.getElementById('profile-drawer').classList.remove('open');
+  document.getElementById('profile-drawer-backdrop').classList.remove('open');
+}
+
+function buildCrossRefSection(opp) {
+  var html = '';
+  var fencerKeys = ['raedyn', 'kaylan'];
+  var anyFound = false;
+  var rows = '';
+  var fi;
+
+  for(fi = 0; fi < fencerKeys.length; fi++) {
+    var fk = fencerKeys[fi];
+    var f = FENCERS[fk];
+    var bouts = JSON.parse(localStorage.getItem('ft_bouts_'+fk) || '[]');
+    var liveBouts = JSON.parse(localStorage.getItem('ft_live_bouts_'+fk) || '[]');
+    var oppLast = opp.last || '';
+    if(!oppLast || oppLast === 'Fencer') continue;
+
+    var matched = [];
+    var bi;
+    for(bi = 0; bi < bouts.length; bi++) {
+      if(bouts[bi].opp_last.toLowerCase().indexOf(oppLast.toLowerCase()) !== -1) {
+        matched.push(bouts[bi]);
+      }
+    }
+    for(bi = 0; bi < liveBouts.length; bi++) {
+      var lbOpp = liveBouts[bi].opponent || '';
+      if(lbOpp.toLowerCase().indexOf(oppLast.toLowerCase()) !== -1) {
+        matched.push({
+          opp_name: lbOpp, score_self: liveBouts[bi].score_self,
+          score_opp: liveBouts[bi].score_opp, result: liveBouts[bi].result,
+          date: new Date(liveBouts[bi].timestamp).toLocaleDateString(),
+          event: liveBouts[bi].event_type
+        });
+      }
+    }
+
+    if(matched.length > 0) {
+      anyFound = true;
+      var wins = 0;
+      for(bi = 0; bi < matched.length; bi++) { if(matched[bi].result === 'W') wins++; }
+      var lastBout = matched[matched.length - 1];
+      rows += '<div class="drawer-h2h-row">';
+      rows += '<div><div class="drawer-h2h-name">'+f.first+'</div>';
+      rows += '<div class="drawer-h2h-last">Last: '+(lastBout.result === 'W' ? 'Won' : 'Lost')+' '+
+        (lastBout.score_self||'?')+'-'+(lastBout.score_opp||'?')+
+        (lastBout.event ? ', '+lastBout.event : '')+'</div></div>';
+      rows += '<span class="drawer-h2h-record">'+wins+'W – '+(matched.length-wins)+'L</span>';
+      rows += '</div>';
+    } else {
+      rows += '<div class="drawer-h2h-row">';
+      rows += '<span class="drawer-h2h-name">'+f.first+'</span>';
+      rows += '<span style="font-size:12px;color:var(--text3);">No bouts found</span>';
+      rows += '</div>';
+    }
+  }
+
+  html += '<div class="drawer-h2h">';
+  html += '<div class="drawer-h2h-title">YOUR HISTORY VS '+((opp.last && opp.last !== 'Fencer') ? opp.last.toUpperCase() : opp.name.toUpperCase())+'</div>';
+  html += rows;
+  html += '</div>';
+
+  return html;
+}
+
+function loadOppProfile(evtKey, idx) {
+  var field = EVENT_MAP[evtKey].field;
+  var opp = field[idx];
+  if(!opp) return;
+
+  var target = document.getElementById('drawer-profile-data');
+  var loadBtn = document.getElementById('drawer-load-btn');
+  if(target) target.innerHTML = '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Searching FencingTracker for '+opp.first+'...</div>';
+  if(loadBtn) loadBtn.classList.add('hidden');
+
+  var proxy = 'https://api.allorigins.win/get?url=';
+  var searchUrl = 'https://www.fencingtracker.com/fencers?q=' + encodeURIComponent(opp.last);
+
+  fetch(proxy + encodeURIComponent(searchUrl))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var profileUrl = findFencerUrl(d.contents, opp);
+      if(profileUrl) {
+        if(target) target.innerHTML = '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Loading bout history...</div>';
+        return fetch(proxy + encodeURIComponent(profileUrl));
+      } else {
+        if(target) target.innerHTML = '<div style="font-size:13px;color:var(--text2);padding:10px;">Not found on FencingTracker. Try a different name.</div>';
+        return null;
+      }
+    })
+    .then(function(r) { if(r) return r.json(); })
+    .then(function(d) {
+      if(d) {
+        var bouts = parseFTBouts(d.contents);
+        var profile = computeOppProfile(bouts, opp);
+        localStorage.setItem('ft_profile_'+opp.key, JSON.stringify(profile));
+        if(target) target.innerHTML = renderProfileStats(profile);
+        showStatus('Loaded '+bouts.length+' bouts for '+opp.name);
+      }
+    })
+    .catch(function() {
+      var cached = localStorage.getItem('ft_profile_'+opp.key);
+      if(cached && target) {
+        target.innerHTML = renderProfileStats(JSON.parse(cached));
+        showStatus('Using cached data');
+      } else if(target) {
+        target.innerHTML = '<div style="font-size:13px;color:var(--text2);padding:10px;">Could not load — check connection</div>';
+      }
+    });
+}
+
+function findFencerUrl(html, fencer) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  var links = doc.querySelectorAll('a[href*="/fencer/"]');
+  var bestMatch = null;
+  var i;
+  for(i = 0; i < links.length; i++) {
+    var text = links[i].textContent.toLowerCase();
+    var lastName = (fencer.last || '').toLowerCase();
+    var firstName = (fencer.first || '').toLowerCase();
+    if(lastName && text.indexOf(lastName) !== -1) {
+      bestMatch = 'https://www.fencingtracker.com' + links[i].getAttribute('href');
+      // If first name also matches, prefer this one
+      if(firstName && text.indexOf(firstName) !== -1) {
+        return bestMatch;
+      }
+    }
+  }
+  return bestMatch;
+}
+
+function computeOppProfile(bouts, fencer) {
+  var wins = 0;
+  var i;
+  for(i = 0; i < bouts.length; i++) { if(bouts[i].result === 'W') wins++; }
+
+  // Club breakdown
+  var clubStats = {};
+  for(i = 0; i < bouts.length; i++) {
+    var club = bouts[i].opp_club || 'Unknown';
+    if(!clubStats[club]) clubStats[club] = {w:0, l:0};
+    if(bouts[i].result === 'W') clubStats[club].w++;
+    else clubStats[club].l++;
+  }
+
+  // Recent form (last 10)
+  var recent = bouts.slice(-10);
+  var recentWins = 0;
+  for(i = 0; i < recent.length; i++) { if(recent[i].result === 'W') recentWins++; }
+
+  // Head to head vs Tsui
+  var h2h = [];
+  for(i = 0; i < bouts.length; i++) {
+    if(bouts[i].opp_last === 'Tsui') h2h.push(bouts[i]);
+  }
+
+  // Top opponents
+  var oppMap = {};
+  for(i = 0; i < bouts.length; i++) {
+    var name = bouts[i].opp_name || bouts[i].opp_last || 'Unknown';
+    if(!oppMap[name]) oppMap[name] = {w:0,l:0};
+    if(bouts[i].result === 'W') oppMap[name].w++;
+    else oppMap[name].l++;
+  }
+
+  return {
+    fencer: fencer,
+    total: bouts.length,
+    wins: wins,
+    losses: bouts.length - wins,
+    win_pct: bouts.length > 0 ? Math.round(wins/bouts.length*100) : 0,
+    club_stats: clubStats,
+    recent_wins: recentWins,
+    recent_total: recent.length,
+    h2h_vs_tsui: h2h,
+    top_opponents: oppMap,
+    bouts: bouts
+  };
+}
+
+function renderProfileStats(profile) {
+  var html = '';
+
+  // Career stats
+  html += '<div class="drawer-section">';
+  html += '<div class="drawer-section-label">CAREER STATS</div>';
+  html += '<div class="drawer-stat-row"><span class="drawer-stat-label">Record</span><span class="drawer-stat-val">'+profile.wins+'W – '+profile.losses+'L</span></div>';
+  html += '<div class="drawer-stat-row"><span class="drawer-stat-label">Win %</span><span class="drawer-stat-val">'+profile.win_pct+'%</span></div>';
+  html += '<div class="drawer-stat-row"><span class="drawer-stat-label">Bouts analyzed</span><span class="drawer-stat-val">'+profile.total+'</span></div>';
+  html += '</div>';
+
+  // Club breakdown
+  var clubKeys = Object.keys(profile.club_stats);
+  if(clubKeys.length > 0) {
+    // Sort by total bouts desc
+    clubKeys.sort(function(a,b) {
+      var ta = profile.club_stats[a].w + profile.club_stats[a].l;
+      var tb = profile.club_stats[b].w + profile.club_stats[b].l;
+      return tb - ta;
+    });
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label">CLUB BREAKDOWN</div>';
+    var ci;
+    for(ci = 0; ci < Math.min(clubKeys.length, 6); ci++) {
+      var cs = profile.club_stats[clubKeys[ci]];
+      var cTotal = cs.w + cs.l;
+      var cPct = cTotal > 0 ? Math.round(cs.w/cTotal*100) : 0;
+      var isSoCAL = clubKeys[ci].toLowerCase().indexOf('socal') !== -1;
+      html += '<div class="drawer-stat-row'+(isSoCAL?' style="color:var(--gold);"':'')+'"><span class="drawer-stat-label">vs '+clubKeys[ci]+'</span><span class="drawer-stat-val">'+cs.w+'W '+cs.l+'L '+cPct+'%</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // Recent form
+  if(profile.recent_total > 0) {
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label">RECENT FORM (LAST '+profile.recent_total+')</div>';
+    var rPct = Math.round(profile.recent_wins / profile.recent_total * 100);
+    var barColor = rPct >= 60 ? 'var(--green)' : (rPct >= 40 ? 'var(--gold)' : 'var(--red)');
+    var trendLabel = rPct >= 70 ? '↑ Hot' : (rPct <= 30 ? '↓ Cold' : '→ Stable');
+    html += '<div class="drawer-bar-wrap"><div class="drawer-bar-fill" style="width:'+rPct+'%;background:'+barColor+';"></div></div>';
+    html += '<div class="drawer-stat-row"><span class="drawer-stat-label">'+profile.recent_wins+'W '+( profile.recent_total-profile.recent_wins)+'L  '+rPct+'%</span><span class="drawer-stat-val" style="color:'+barColor+';">'+trendLabel+'</span></div>';
+    html += '</div>';
+  }
+
+  // H2H vs Tsui
+  if(profile.h2h_vs_tsui && profile.h2h_vs_tsui.length > 0) {
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label" style="color:var(--gold);">HEAD-TO-HEAD VS TSUI</div>';
+    var hi;
+    for(hi = 0; hi < profile.h2h_vs_tsui.length; hi++) {
+      var hb = profile.h2h_vs_tsui[hi];
+      html += '<div class="drawer-stat-row" style="color:var(--gold);"><span>'+hb.date+' — '+(hb.result==='W'?'Won':'Lost')+' '+hb.score_self+'-'+hb.score_opp+'</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // Top opponents
+  var oppKeys = Object.keys(profile.top_opponents || {});
+  if(oppKeys.length > 0) {
+    oppKeys.sort(function(a,b) {
+      var ta = profile.top_opponents[a].w + profile.top_opponents[a].l;
+      var tb = profile.top_opponents[b].w + profile.top_opponents[b].l;
+      return tb - ta;
+    });
+    html += '<div class="drawer-section">';
+    html += '<div class="drawer-section-label">TOP OPPONENTS FENCED</div>';
+    var oi;
+    for(oi = 0; oi < Math.min(oppKeys.length, 8); oi++) {
+      var op = profile.top_opponents[oppKeys[oi]];
+      var isTsui = oppKeys[oi].toLowerCase().indexOf('tsui') !== -1;
+      html += '<div class="drawer-stat-row'+(isTsui?' style="color:var(--gold);"':'')+'"><span class="drawer-stat-label">'+oppKeys[oi]+'</span><span class="drawer-stat-val">'+op.w+'W '+op.l+'L</span></div>';
+    }
+    html += '</div>';
+  }
+
+  return html;
+}
+
+
+/* ================================================================
+   POOL SEARCH + AI TIPS
+   ================================================================ */
+
+function poolSearchFencers() {
+  var q = (document.getElementById('pool-search').value || '').toLowerCase().trim();
+  var resultsEl = document.getElementById('pool-search-results');
+  var countEl = document.getElementById('pool-search-count');
+
+  if(q.length === 0) {
+    resultsEl.classList.add('hidden');
+    resultsEl.innerHTML = '';
+    countEl.textContent = '';
+    return;
+  }
+
+  var allFencers = JNR_FIELD.concat(Y12_FIELD).concat(Y14_FIELD);
+  var seen = {};
+  var matches = [];
+  var i;
+  for(i = 0; i < allFencers.length; i++) {
+    var f = allFencers[i];
+    if(f.key.indexOf('raedyn') !== -1 || f.key.indexOf('kaylan') !== -1) continue;
+    if(f.last === 'Fencer') continue; // skip stubs
+    if(seen[f.key]) continue;
+    if((f.first && f.first.toLowerCase().indexOf(q) !== -1) ||
+       (f.last && f.last.toLowerCase().indexOf(q) !== -1) ||
+       (f.club && f.club.toLowerCase().indexOf(q) !== -1) ||
+       (f.name && f.name.toLowerCase().indexOf(q) !== -1)) {
+      seen[f.key] = true;
+      matches.push({fencer: f, evtKey: getEventKeyForFencer(f)});
+    }
+  }
+
+  if(matches.length === 0) {
+    countEl.textContent = 'No fencer found — try FencingTracker search';
+    resultsEl.classList.add('hidden');
+    return;
+  }
+
+  countEl.textContent = matches.length + ' fencer' + (matches.length > 1 ? 's' : '') + ' found';
+  var html = '';
+  for(i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    var evtField = EVENT_MAP[m.evtKey].field;
+    var fieldIdx = -1;
+    var fi;
+    for(fi = 0; fi < evtField.length; fi++) { if(evtField[fi].key === m.fencer.key) { fieldIdx = fi; break; } }
+    var trendIcon = '';
+    if(m.fencer.trend === 'hot') trendIcon = '↑ Hot';
+    else if(m.fencer.trend === 'dominant') trendIcon = '↑ Dominant';
+    else if(m.fencer.trend === 'cold') trendIcon = '↓ Cold';
+    else if(m.fencer.trend === 'stable') trendIcon = '→ Stable';
+
+    html += '<div class="opp-card" style="cursor:pointer;" onclick="openProfileDrawer(\''+m.evtKey+'\','+fieldIdx+')">';
+    html += '<div class="opp-card-top">';
+    html += '<div><div class="opp-name">'+m.fencer.name+'</div>';
+    html += '<div class="opp-meta">'+m.fencer.rating+' • '+m.fencer.club+' • '+m.evtKey.toUpperCase()+' #'+m.fencer.seed+'</div></div>';
+    html += '<span class="opp-badge '+THREAT_BADGE_CLASS[m.fencer.threat_class]+'">'+THREAT_LABELS[m.fencer.threat_class]+'</span>';
+    html += '</div>';
+    if(trendIcon) html += '<div class="opp-trend" style="font-size:12px;margin-top:4px;">Trend: '+trendIcon+'</div>';
+    html += '</div>';
+  }
+  resultsEl.innerHTML = html;
+  resultsEl.classList.remove('hidden');
+}
+
+function getEventKeyForFencer(f) {
+  var events = Object.keys(EVENT_MAP);
+  var i, j;
+  for(i = 0; i < events.length; i++) {
+    var field = EVENT_MAP[events[i]].field;
+    for(j = 0; j < field.length; j++) {
+      if(field[j].key === f.key) return events[i];
+    }
+  }
+  return 'jnr';
+}
+
+function getPoolTips() {
+  var apiKey = localStorage.getItem('foiliq_key');
+  if(!apiKey) { showStatus('Add API key in Home tab'); return; }
+
+  var field = EVENT_MAP[ACTIVE_EVENT].field;
+  var bouts = JSON.parse(localStorage.getItem('ft_bouts_'+ACTIVE_FENCER) || '[]');
+  var names = [];
+  var matchedOpps = [];
+  var i;
+  for(i = 1; i <= POOL_SIZE; i++) {
+    var val = document.getElementById('pool-fencer-'+i).value.trim();
+    if(val) {
+      names.push(val);
+      var m = matchOpponent(field, val);
+      if(m) matchedOpps.push(m);
+    }
+  }
+  if(names.length === 0) { showStatus('Enter pool fencer names first'); return; }
+
+  var tipsEl = document.getElementById('pool-tips');
+  var tipsBody = document.getElementById('pool-tips-body');
+  tipsEl.classList.remove('hidden');
+  tipsBody.innerHTML = '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Analyzing pool...</div>';
+
+  var f = FENCERS[ACTIVE_FENCER];
+  var age = 2026 - f.born;
+  var toneLine = age <= 12 ?
+    'Clear, warm, one idea at a time. Short sentences.' :
+    'Tactical, peer-level. Direct and specific.';
+
+  var oppInfo = matchedOpps.map(function(o) {
+    var priors = findPriorBouts(bouts, o.last);
+    var priorStr = priors.length > 0 ? ' (Prior record: ' + priors.filter(function(p){return p.result==='W';}).length + 'W-' + priors.filter(function(p){return p.result==='L';}).length + 'L)' : '';
+    return o.name + ' — ' + o.rating + ' ' + o.club + ' — ' + THREAT_LABELS[o.threat_class] + priorStr;
+  }).join('\n');
+
+  var refNote = localStorage.getItem('ref_observation_'+ACTIVE_EVENT) || '';
+
+  var prompt = 'You are FoilIQ, giving pre-pool tactical advice to a youth foil fencer.\n\n' +
+    'FENCER: '+f.name+', age '+age+', '+f.rating+', '+f.club+'.\n' +
+    'EVENT: '+ACTIVE_EVENT.toUpperCase()+' at Precision Invitational 2026\n' +
+    'TONE: '+toneLine+'\n\n' +
+    'POOL COMPOSITION:\n'+oppInfo+'\n\n' +
+    (refNote ? 'REFEREE: '+refNote+'\n\n' : '') +
+    'Give exactly 5 bullet points for a pre-pool tactical brief.\n' +
+    'Each bullet: one specific, actionable insight based on the opponent data.\n' +
+    'Reference specific opponents by name and their tendencies.\n' +
+    'NEVER say "must win", "need to", "have to", "threat".\n' +
+    'Use autonomy-preserving language: "what if you..." "consider..."';
+
+  callClaude(prompt, function(response) {
+    tipsBody.innerHTML = response;
   });
 }
 
