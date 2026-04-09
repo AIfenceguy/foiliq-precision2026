@@ -955,6 +955,7 @@ h3 { font-size: 20px; }
 .gap-8 { gap: 8px; }
 .flex-col { display: flex; flex-direction: column; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -1071,15 +1072,7 @@ h3 { font-size: 20px; }
       <input type="text" id="intel-search" placeholder="🔍 Search fencers — first or last name..." oninput="filterIntel()">
       <div id="intel-match-count" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
     </div>
-    <div style="margin-bottom:12px;">
-      <button class="btn-outline btn-sm" style="width:100%;" onclick="loadAllIntelForDivision(ACTIVE_EVENT)">📥 Load All Intel for <span id="intel-load-div-label">JNR</span></button>
-      <div id="intel-load-progress" style="display:none;margin-top:8px;">
-        <div style="background:var(--bg2);border:1px solid var(--gold-border);border-radius:8px;overflow:hidden;height:8px;margin-bottom:4px;">
-          <div id="intel-load-bar" style="height:100%;background:var(--gold);width:0%;transition:width .3s;"></div>
-        </div>
-        <div id="intel-load-status" style="font-size:11px;color:var(--text2);text-align:center;"></div>
-      </div>
-    </div>
+    <div id="intel-db-banner" style="margin-bottom:12px;"></div>
     <div id="intel-ref-section" class="card hidden">
       <div class="card-header">🏁 Referee Observation</div>
       <div class="ref-options" id="ref-options"></div>
@@ -1395,6 +1388,17 @@ var ACTIVE_EVENT = 'jnr';
 var FENCER_MODE = false; // false = parent, true = fencer
 var CURRENT_TAB = 'home';
 
+/* ===== SUPABASE CLIENT ===== */
+var SUPABASE_URL = 'https://kyfkiigbiwhczrtnlivc.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable_GbLL0419rGP6EYSmq42Bsg_r5EkOYtg';
+var sb = null;
+try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e) { sb = null; }
+
+/* ===== DB ANALYTICS CACHE ===== */
+var DB_ANALYTICS = {};
+var DB_LOADED = false;
+var DB_LOAD_TIME = null;
+
 /* ===== AUTH DATA ===== */
 var USERS = {
   'rickytsuiusa@gmail.com':  { password:'@Nannan81', name:'Ricky' },
@@ -1677,6 +1681,14 @@ function showApp() {
   updateDebriefAutoFill();
   updatePregameContext();
   updateTimerFencerIndicator();
+
+  // Load all analytics from Supabase in background
+  loadAllAnalyticsFromDB(function(analytics) {
+    var count = Object.keys(analytics).length;
+    if(count > 0) showToast('Intel loaded — ' + count + ' profiles');
+    renderDBStatusBanner();
+    if(CURRENT_TAB === 'intel') renderOppListCompact();
+  });
 }
 
 
@@ -1867,6 +1879,9 @@ function renderIntelTab() {
     tabsHtml += '<button class="intel-event-tab'+act+'" onclick="setIntelEvent(\''+evt+'\',this)">'+evt.toUpperCase()+'</button>';
   }
   document.getElementById('intel-event-tabs').innerHTML = tabsHtml;
+
+  // Render DB status banner
+  renderDBStatusBanner();
 
   // Render ref observation
   renderRefOptions();
@@ -4565,14 +4580,21 @@ function openSettings() {
   html += '<div class="settings-row"><span class="settings-row-label">Debrief sessions</span><span class="settings-row-val">' + dbSessions.length + '</span></div>';
   html += '</div>';
 
-  // Opponent profiles cache
+  // Database intel
   html += '<div class="settings-group">';
-  html += '<div class="settings-label">OPPONENT PROFILES</div>';
-  var profileCount = countCachedProfiles();
-  html += '<div class="settings-row"><span class="settings-row-label">Cached profiles</span><span class="settings-row-val">' + profileCount + '</span></div>';
-  if(profileCount > 0) {
-    html += '<button class="settings-danger-btn" style="font-size:11px;min-height:30px;padding:4px 8px;margin-top:6px;" onclick="clearCachedProfiles()">Clear Profile Cache</button>';
+  html += '<div class="settings-label">DATABASE INTEL</div>';
+  var dbCount = Object.keys(DB_ANALYTICS).length;
+  var lastUpdated = null;
+  var dbKeys = Object.keys(DB_ANALYTICS);
+  var dbi;
+  for(dbi = 0; dbi < dbKeys.length; dbi++) {
+    var ca = DB_ANALYTICS[dbKeys[dbi]].computed_at;
+    if(ca && (!lastUpdated || ca > lastUpdated)) lastUpdated = ca;
   }
+  html += '<div class="settings-row"><span class="settings-row-label">Profiles loaded</span><span class="settings-row-val">' + dbCount + ' fencers</span></div>';
+  if(lastUpdated) html += '<div class="settings-row"><span class="settings-row-label">Last updated</span><span class="settings-row-val">' + new Date(lastUpdated).toLocaleDateString() + '</span></div>';
+  html += '<button class="btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="refreshFromDB();closeSettings();">↻ Refresh from Database</button>';
+  html += '<div style="font-size:11px;color:var(--text3);margin-top:4px;">Data is scraped nightly by the pipeline.</div>';
   html += '</div>';
 
   // Storage
@@ -4649,187 +4671,160 @@ function showToast(msg, type) {
 
 
 /* ================================================================
-   BATCH FT FETCH — LOAD ALL INTEL
+   SUPABASE DB — LOAD ALL ANALYTICS
    ================================================================ */
 
 var FT_CACHE_PREFIX = 'ft_profile_v2_';
-var FT_PROXY = 'https://api.allorigins.win/get?url=';
+
+/* --- DB-based replacements for FT fetching --- */
+
+function loadAllAnalyticsFromDB(onDone) {
+  // Check memory cache (1 hour)
+  if(DB_LOADED && DB_LOAD_TIME && (Date.now() - DB_LOAD_TIME) < 3600000) {
+    if(onDone) onDone(DB_ANALYTICS);
+    return;
+  }
+  // Check localStorage cache (survives refresh)
+  var lsCache = localStorage.getItem('db_analytics_cache');
+  var lsCacheTime = parseInt(localStorage.getItem('db_analytics_cache_time') || '0');
+  if(lsCache && (Date.now() - lsCacheTime) < 3600000) {
+    try {
+      DB_ANALYTICS = JSON.parse(lsCache);
+      DB_LOADED = true;
+      DB_LOAD_TIME = lsCacheTime;
+      if(onDone) onDone(DB_ANALYTICS);
+      return;
+    } catch(e) {}
+  }
+  // Fetch from Supabase
+  if(!sb) {
+    // Supabase client not available — use localStorage fallback
+    if(lsCache) {
+      try { DB_ANALYTICS = JSON.parse(lsCache); DB_LOADED = true; } catch(e) {}
+    }
+    if(onDone) onDone(DB_ANALYTICS);
+    return;
+  }
+  sb.from('fencer_analytics').select('*').then(function(result) {
+    if(result.error) {
+      console.warn('DB load error:', result.error.message);
+      // Fallback to localStorage cache
+      if(lsCache) {
+        try { DB_ANALYTICS = JSON.parse(lsCache); DB_LOADED = true; showToast('Using cached intel', 'warn'); } catch(e) {}
+      }
+      if(onDone) onDone(DB_ANALYTICS);
+      return;
+    }
+    var rows = result.data || [];
+    var i;
+    for(i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      try { row.club_stats = typeof row.club_stats === 'string' ? JSON.parse(row.club_stats) : (row.club_stats || {}); } catch(e) { row.club_stats = {}; }
+      try { row.top_opponents = typeof row.top_opponents === 'string' ? JSON.parse(row.top_opponents) : (row.top_opponents || {}); } catch(e) { row.top_opponents = {}; }
+      try { row.last_5 = typeof row.last_5 === 'string' ? JSON.parse(row.last_5) : (row.last_5 || []); } catch(e) { row.last_5 = []; }
+      try { row.vs_tsui = typeof row.vs_tsui === 'string' ? JSON.parse(row.vs_tsui) : (row.vs_tsui || []); } catch(e) { row.vs_tsui = []; }
+      DB_ANALYTICS[row.fencer_key] = row;
+    }
+    DB_LOADED = true;
+    DB_LOAD_TIME = Date.now();
+    localStorage.setItem('db_analytics_cache', JSON.stringify(DB_ANALYTICS));
+    localStorage.setItem('db_analytics_cache_time', DB_LOAD_TIME.toString());
+    if(onDone) onDone(DB_ANALYTICS);
+  });
+}
+
+function getAnalyticsForFencer(key) {
+  return DB_ANALYTICS[key] || null;
+}
 
 function loadAllIntelForDivision(divKey) {
+  // Now instant — data already loaded from DB at startup
   var field = EVENT_MAP[divKey] ? EVENT_MAP[divKey].field : [];
-  var total = field.length;
-  var current = 0;
-  var loaded = 0;
-  var failed = 0;
-  var skipped = 0;
-
-  document.getElementById('intel-load-progress').style.display = 'block';
-  document.getElementById('intel-load-bar').style.width = '0%';
-
-  function loadNext() {
-    if(current >= total) {
-      document.getElementById('intel-load-bar').style.width = '100%';
-      document.getElementById('intel-load-status').textContent =
-        'Done — ' + loaded + ' loaded, ' + skipped + ' cached, ' + failed + ' not found';
-      showToast('Intel loaded for ' + divKey.toUpperCase());
-      renderOppListCompact();
-      return;
-    }
-
-    var f = field[current];
-    var pct = Math.round(current / total * 100);
-    document.getElementById('intel-load-bar').style.width = pct + '%';
-    document.getElementById('intel-load-status').textContent =
-      '[' + (current + 1) + '/' + total + '] ' + f.first + ' ' + f.last + '...';
-
-    // Skip stubs and self
-    if(f.last === 'Fencer' || f.key.indexOf('raedyn') !== -1 || f.key.indexOf('kaylan') !== -1) {
-      skipped++;
-      current++;
-      setTimeout(loadNext, 50);
-      return;
-    }
-
-    // Check cache
-    var cached = localStorage.getItem(FT_CACHE_PREFIX + f.key);
-    if(cached) {
-      skipped++;
-      current++;
-      setTimeout(loadNext, 50);
-      return;
-    }
-
-    fetchFencerProfileBatch(f.key, f.first, f.last, f.club, function(err) {
-      if(err) failed++; else loaded++;
-      current++;
-      setTimeout(loadNext, 600);
-    });
-  }
-
-  loadNext();
-}
-
-function fetchFencerProfileBatch(fencerKey, firstName, lastName, club, onDone) {
-  var searchUrl = 'https://www.fencingtracker.com/fencers?q=' + encodeURIComponent(lastName);
-  var proxySearch = FT_PROXY + encodeURIComponent(searchUrl);
-
-  fetch(proxySearch)
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var profileUrl = findFencerUrlBatch(data.contents, firstName, lastName);
-      if(!profileUrl) { onDone('not_found'); return; }
-      return fetch(FT_PROXY + encodeURIComponent(profileUrl));
-    })
-    .then(function(r) { if(r) return r.json(); })
-    .then(function(data) {
-      if(!data || !data.contents) { onDone('no_data'); return; }
-      var bouts = parseFTBouts(data.contents);
-      var profile = computeFencerProfileBatch(fencerKey, firstName, lastName, club, bouts);
-      profile.fetched_at = new Date().toISOString();
-      localStorage.setItem(FT_CACHE_PREFIX + fencerKey, JSON.stringify(profile));
-      onDone(null);
-    })
-    .catch(function() { onDone('fetch_error'); });
-}
-
-function findFencerUrlBatch(html, firstName, lastName) {
-  var parser = new DOMParser();
-  var doc = parser.parseFromString(html, 'text/html');
-  var links = doc.querySelectorAll('a[href*="/fencer/"]');
-  var best = null;
-  var bestScore = 0;
+  var count = 0;
   var i;
-  for(i = 0; i < links.length; i++) {
-    var text = links[i].textContent.toLowerCase();
-    var href = links[i].getAttribute('href') || '';
-    if(href.indexOf('/fencer/') === -1) continue;
-    var score = 0;
-    if(text.indexOf(lastName.toLowerCase()) !== -1) score += 3;
-    if(text.indexOf(firstName.toLowerCase()) !== -1) score += 2;
-    if(score > bestScore) {
-      bestScore = score;
-      best = href.indexOf('http') === 0 ? href : 'https://www.fencingtracker.com' + href;
-    }
+  for(i = 0; i < field.length; i++) {
+    if(DB_ANALYTICS[field[i].key]) count++;
   }
-  return bestScore >= 3 ? best : null;
+  if(count > 0) {
+    showToast(count + ' profiles ready for ' + divKey.toUpperCase());
+  } else {
+    showToast('No DB data yet — run pipeline first', 'warn');
+  }
+  renderOppListCompact();
 }
 
-function computeFencerProfileBatch(key, firstName, lastName, club, bouts) {
-  var wins = 0, losses = 0, i;
-  for(i = 0; i < bouts.length; i++) { if(bouts[i].result === 'W') wins++; else losses++; }
-  var winPct = bouts.length > 0 ? Math.round(wins / bouts.length * 100) : 0;
-
-  var poolBouts = [], deBouts = [];
-  for(i = 0; i < bouts.length; i++) {
-    if(bouts[i].bout_type === 'pool') poolBouts.push(bouts[i]);
-    else deBouts.push(bouts[i]);
-  }
-  var poolWins = 0, deWins = 0;
-  for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolWins++; }
-  for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deWins++; }
-
-  var recent10 = bouts.slice(-10);
-  var recentWins = 0;
-  for(i = 0; i < recent10.length; i++) { if(recent10[i].result === 'W') recentWins++; }
-  var recentPct = recent10.length > 0 ? Math.round(recentWins / recent10.length * 100) : 0;
-  var trendDelta = recentPct - winPct;
-  var trend = trendDelta >= 10 ? 'hot' : trendDelta <= -10 ? 'cold' : 'stable';
-
-  var totalTF = 0, totalTA = 0;
-  for(i = 0; i < bouts.length; i++) { totalTF += bouts[i].score_self; totalTA += bouts[i].score_opp; }
-
-  var clubMap = {};
-  for(i = 0; i < bouts.length; i++) {
-    var c = bouts[i].opp_club || 'Unknown';
-    if(!clubMap[c]) clubMap[c] = {w:0, l:0};
-    if(bouts[i].result === 'W') clubMap[c].w++; else clubMap[c].l++;
-  }
-
-  var last5 = bouts.slice(-5).reverse().map(function(b) {
-    return { date:b.date, opp:b.opp_last, club:b.opp_club, result:b.result,
-      score:b.score_self+'-'+b.score_opp, event:b.event, type:b.bout_type };
+function refreshFromDB() {
+  localStorage.removeItem('db_analytics_cache');
+  localStorage.removeItem('db_analytics_cache_time');
+  DB_LOADED = false;
+  DB_ANALYTICS = {};
+  showToast('Refreshing from database...');
+  loadAllAnalyticsFromDB(function(analytics) {
+    var count = Object.keys(analytics).length;
+    showToast('Loaded ' + count + ' profiles from database');
+    renderDBStatusBanner();
+    renderOppListCompact();
   });
+}
 
-  var vsTsui = [];
-  for(i = 0; i < bouts.length; i++) {
-    if(bouts[i].opp_last && bouts[i].opp_last.toLowerCase().indexOf('tsui') !== -1) {
-      vsTsui.push(bouts[i]);
-    }
+function renderDBStatusBanner() {
+  var banner = document.getElementById('intel-db-banner');
+  if(!banner) return;
+  var count = Object.keys(DB_ANALYTICS).length;
+  var lastUpdated = null;
+  var keys = Object.keys(DB_ANALYTICS);
+  var i;
+  for(i = 0; i < keys.length; i++) {
+    var ca = DB_ANALYTICS[keys[i]].computed_at;
+    if(ca && (!lastUpdated || ca > lastUpdated)) lastUpdated = ca;
   }
+  if(count === 0) {
+    banner.innerHTML = '<div style="background:rgba(232,85,85,0.1);border:1px solid rgba(232,85,85,0.3);border-radius:8px;padding:10px;font-size:12px;color:var(--red);">' +
+      '⚠ No intel data loaded. Run the pipeline script to populate the database.' +
+      '</div>';
+  } else {
+    var dateStr = lastUpdated ? new Date(lastUpdated).toLocaleDateString() : 'unknown';
+    banner.innerHTML = '<div style="background:var(--gold-dim);border:1px solid var(--gold-border);border-radius:8px;padding:8px 12px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">' +
+      '<span style="color:var(--green);">✓ ' + count + ' profiles • Updated ' + dateStr + '</span>' +
+      '<button class="btn-sm" style="min-height:28px;padding:2px 10px;font-size:11px;background:var(--bg2);color:var(--gold);border:1px solid var(--gold-border);" onclick="refreshFromDB()">↻ Refresh</button>' +
+      '</div>';
+  }
+}
 
-  return {
-    key:key, first:firstName, last:lastName, club:club,
-    total_bouts:bouts.length, wins:wins, losses:losses, win_pct:winPct,
-    pool_win_pct: poolBouts.length > 0 ? Math.round(poolWins/poolBouts.length*100) : 0,
-    de_win_pct: deBouts.length > 0 ? Math.round(deWins/deBouts.length*100) : 0,
-    pool_bouts:poolBouts.length, de_bouts:deBouts.length,
-    recent_win_pct:recentPct, trend:trend, trend_delta:trendDelta,
-    total_tf:totalTF, total_ta:totalTA, touch_diff:totalTF-totalTA,
-    club_stats:clubMap, last_5:last5, vs_tsui:vsTsui, bouts:bouts
-  };
+function loadFullBoutHistory(fencerKey, onDone) {
+  // Load full bout list from Supabase for a specific fencer
+  var cacheKey = 'bout_history_' + fencerKey;
+  var cached = localStorage.getItem(cacheKey);
+  var cacheTime = parseInt(localStorage.getItem(cacheKey + '_time') || '0');
+  if(cached && (Date.now() - cacheTime) < 3600000) {
+    try { onDone(JSON.parse(cached)); return; } catch(e) {}
+  }
+  if(!sb) { onDone([]); return; }
+  sb.from('fencer_bout_history').select('*').eq('fencer_key', fencerKey)
+    .order('bout_date', {ascending: false}).limit(200)
+    .then(function(result) {
+      if(result.error) { onDone([]); return; }
+      var bouts = result.data || [];
+      localStorage.setItem(cacheKey, JSON.stringify(bouts));
+      localStorage.setItem(cacheKey + '_time', Date.now().toString());
+      onDone(bouts);
+    });
 }
 
 
 /* ================================================================
-   PER-FENCER LOAD + INLINE PROFILE STATS IN INTEL CARDS
+   PER-FENCER LOAD — NOW READS FROM DB_ANALYTICS
    ================================================================ */
 
 function loadSingleFencer(key) {
-  var f = getFencerByKey(key);
-  if(!f) return;
+  var analytics = getAnalyticsForFencer(key);
   var btn = document.getElementById('load-btn-' + key);
-  if(btn) { btn.textContent = '⏳ Loading...'; btn.disabled = true; }
-
-  fetchFencerProfileBatch(key, f.first, f.last, f.club, function(err) {
-    if(err) {
-      if(btn) { btn.textContent = '❌ Not found on FT'; btn.disabled = false; }
-      return;
-    }
-    var profile = JSON.parse(localStorage.getItem(FT_CACHE_PREFIX + key) || 'null');
-    if(btn) btn.textContent = '✅ ' + (profile ? profile.total_bouts : 0) + ' bouts loaded';
-    if(profile) renderFencerProfileInCard(key, profile);
-    showToast((f.first || '') + ' ' + (f.last || '') + ' loaded');
-  });
+  if(!analytics || !analytics.total_bouts) {
+    if(btn) { btn.textContent = 'No data yet'; btn.style.opacity = '0.5'; }
+    return;
+  }
+  if(btn) btn.style.display = 'none';
+  renderFencerProfileInCard(key, analytics);
 }
 
 function getFencerByKey(key) {
@@ -5131,12 +5126,10 @@ renderOppListCompact = function() {
       priorStr = ' • ' + wins + 'W-' + (priorBouts.length - wins) + 'L';
     }
 
-    // Check for cached FT profile
-    var cachedProfile = null;
-    var cachedRaw = localStorage.getItem(FT_CACHE_PREFIX + opp.key);
-    if(cachedRaw) { try { cachedProfile = JSON.parse(cachedRaw); } catch(e) {} }
-    var hasProfile = cachedProfile && cachedProfile.total_bouts > 0;
-    var profileBadge = hasProfile ? ' <span style="font-size:10px;color:var(--green);">✓' + cachedProfile.total_bouts + 'b</span>' : '';
+    // Check DB analytics for this fencer
+    var dbProfile = DB_ANALYTICS[opp.key] || null;
+    var hasProfile = dbProfile && dbProfile.total_bouts > 0;
+    var profileBadge = hasProfile ? ' <span style="font-size:10px;color:var(--green);">✓' + dbProfile.total_bouts + 'b</span>' : '';
 
     if(expandedOppKey === opp.key) {
       // Expanded view
@@ -5154,15 +5147,12 @@ renderOppListCompact = function() {
         html += '<div class="prior-bout-badge">📋 ' + priorBouts.length + ' prior — ' + priorStr.replace(' • ', '') + ' (last: ' + lastB.score_self + '-' + lastB.score_opp + ')</div>';
       }
 
-      // Load button or inline profile stats
+      // Show DB profile stats inline or "no data" message
       if(hasProfile) {
         html += '<div id="profile-data-' + opp.key + '"></div>';
-        // We'll render inline after DOM updates
       } else if(opp.last !== 'Fencer') {
-        html += '<div style="margin-top:8px;">';
-        html += '<button class="btn-sm" id="load-btn-' + opp.key + '" style="background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-border);" onclick="event.stopPropagation();loadSingleFencer(\'' + opp.key + '\')">📥 Load Bout History</button>';
-        html += '<div id="profile-data-' + opp.key + '" style="margin-top:6px;"></div>';
-        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--text3);margin-top:8px;padding:6px;">No bout history in database yet. Data is scraped nightly by the pipeline.</div>';
+        html += '<div id="profile-data-' + opp.key + '"></div>';
       }
 
       html += '<div style="display:flex;gap:8px;margin-top:8px;">';
@@ -5187,15 +5177,10 @@ renderOppListCompact = function() {
 
   container.innerHTML = html || '<div style="text-align:center;color:var(--text3);padding:20px;">No opponents found</div>';
 
-  // Render cached profiles into expanded cards
-  if(expandedOppKey) {
-    var cachedData = localStorage.getItem(FT_CACHE_PREFIX + expandedOppKey);
-    if(cachedData) {
-      try {
-        var p = JSON.parse(cachedData);
-        if(p && p.total_bouts > 0) renderFencerProfileInCard(expandedOppKey, p);
-      } catch(e) {}
-    }
+  // Render DB analytics into expanded cards
+  if(expandedOppKey && DB_ANALYTICS[expandedOppKey]) {
+    var dbData = DB_ANALYTICS[expandedOppKey];
+    if(dbData && dbData.total_bouts > 0) renderFencerProfileInCard(expandedOppKey, dbData);
   }
 };
 
