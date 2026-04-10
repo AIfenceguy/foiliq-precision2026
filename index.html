@@ -942,6 +942,60 @@ h3 { font-size: 20px; }
 .drawer-h2h-record { font-family: 'JetBrains Mono', monospace; }
 .drawer-h2h-last { font-size: 11px; color: var(--text2); }
 
+/* ===== TUTORIAL OVERLAY ===== */
+#tutorial-overlay {
+  position: fixed; inset: 0; z-index: 9990; display: none;
+  pointer-events: none;
+}
+#tutorial-overlay.active { display: block; }
+#tutorial-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.75);
+  pointer-events: auto;
+  transition: clip-path 0.35s ease;
+}
+#tutorial-tooltip {
+  position: absolute; z-index: 9992;
+  background: var(--bg3); border: 2px solid var(--gold);
+  border-radius: 14px; padding: 18px; max-width: 310px; width: calc(100% - 32px);
+  pointer-events: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  animation: tutFadeIn 0.3s ease;
+}
+@keyframes tutFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.tut-step-label {
+  font-family: 'Bebas Neue', sans-serif; font-size: 12px;
+  letter-spacing: 0.08em; color: var(--gold); margin-bottom: 6px;
+}
+.tut-title {
+  font-family: 'Bebas Neue', sans-serif; font-size: 20px;
+  letter-spacing: 0.04em; color: var(--text); margin-bottom: 6px;
+}
+.tut-body {
+  font-size: 14px; color: var(--text2); line-height: 1.6; margin-bottom: 14px;
+}
+.tut-btns { display: flex; gap: 8px; }
+.tut-btn-next {
+  flex: 1; min-height: 44px; background: var(--gold); color: #070B15;
+  font-weight: 700; font-size: 15px; border: none; border-radius: 8px; cursor: pointer;
+}
+.tut-btn-next:active { background: var(--gold-light); }
+.tut-btn-skip {
+  min-height: 44px; padding: 0 16px; background: none;
+  color: var(--text3); font-size: 13px; border: 1px solid var(--gold-border);
+  border-radius: 8px; cursor: pointer;
+}
+.tut-btn-skip:active { background: var(--bg4); }
+.tut-progress {
+  display: flex; gap: 4px; justify-content: center; margin-top: 10px;
+}
+.tut-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3); transition: background 0.2s;
+}
+.tut-dot.active { background: var(--gold); }
+.tut-dot.done { background: rgba(201,168,76,0.4); }
+
 /* ===== UTILITY ===== */
 .hidden { display: none !important; }
 .mb-8 { margin-bottom: 8px; }
@@ -1334,6 +1388,12 @@ h3 { font-size: 20px; }
   <div id="profile-drawer-content"></div>
 </div>
 
+<!-- ==================== TUTORIAL OVERLAY ==================== -->
+<div id="tutorial-overlay">
+  <div id="tutorial-backdrop"></div>
+  <div id="tutorial-tooltip"></div>
+</div>
+
 <!-- ==================== CONFIRM DIALOG ==================== -->
 <div id="confirm-dialog">
   <div class="confirm-box">
@@ -1681,6 +1741,9 @@ function showApp() {
   updateDebriefAutoFill();
   updatePregameContext();
   updateTimerFencerIndicator();
+
+  // Auto-start tutorial for first-time users
+  maybeAutoStartTutorial();
 
   // Load all analytics from Supabase in background
   loadAllAnalyticsFromDB(function(analytics) {
@@ -4603,6 +4666,12 @@ function openSettings() {
   html += '<div class="settings-row"><span class="settings-row-label">localStorage used</span><span class="settings-row-val">~' + getStorageSize() + ' KB</span></div>';
   html += '</div>';
 
+  // Tutorial
+  html += '<div class="settings-group">';
+  html += '<div class="settings-label">TUTORIAL</div>';
+  html += '<button class="btn-outline btn-sm" style="width:100%;" onclick="closeSettings();startTutorial();">▶ Replay Tutorial</button>';
+  html += '</div>';
+
   html += '<div style="text-align:center;color:var(--text3);font-size:12px;margin-top:10px;">FoilIQ V2 • Apr 2026</div>';
 
   document.getElementById('settings-content').innerHTML = html;
@@ -4643,6 +4712,215 @@ function closeSummaryAndRepeat() {
 function closeSummaryAndViewLog() {
   document.getElementById('timer-summary').classList.remove('active');
   showTimerView('log', document.getElementById('timer-tab-log'));
+}
+
+
+/* ================================================================
+   TUTORIAL SYSTEM
+   ================================================================ */
+
+var tutorialStep = 0;
+var tutorialActive = false;
+
+var TUTORIAL_STEPS = [
+  {
+    target: null,
+    title: 'Welcome to FoilIQ',
+    body: 'Your competition day command center. This quick walkthrough shows you the key features — takes about 30 seconds.',
+    position: 'center'
+  },
+  {
+    target: '#home-active-fencer',
+    title: 'Fencer Switcher',
+    body: 'Tap to switch between Raedyn and Kaylan. All data across every tab updates instantly.',
+    position: 'below'
+  },
+  {
+    target: '#home-today-status',
+    title: 'Live Status',
+    body: 'Shows today\'s W-L record and first touch rate — updates automatically as you record bouts.',
+    position: 'below'
+  },
+  {
+    target: null,
+    title: 'Bottom Navigation',
+    body: '7 tabs: Home, Intel, Pool, Timer, Pre-Game, Debrief, History. Swipe between them during competition.',
+    targetSelector: '#bottom-nav',
+    position: 'above'
+  },
+  {
+    target: null,
+    title: 'Field Intel',
+    body: 'Tap any opponent to see their rating intel, trend, and your head-to-head record. Data is loaded from the database automatically.',
+    tabSwitch: 'intel',
+    targetSelector: '#intel-opp-list',
+    position: 'below'
+  },
+  {
+    target: null,
+    title: 'Bout Timer',
+    body: 'Record live bouts with tap-to-score zones. Timer counts down from 3:00 (pool) or 9:00 (DE). You can also add bouts manually.',
+    tabSwitch: 'timer',
+    targetSelector: '#timer-new-view',
+    position: 'below'
+  },
+  {
+    target: null,
+    title: 'Pre-Game Prep',
+    body: 'Answer 5 quick questions before each event. FoilIQ generates a personalized game plan with specific directives.',
+    tabSwitch: 'pregame',
+    targetSelector: '#pregame-content',
+    position: 'below'
+  },
+  {
+    target: null,
+    title: 'Settings',
+    body: 'Tap the gear icon ⚙ in the top right to manage your API key, view storage, and replay this tutorial.',
+    targetSelector: '.top-signout',
+    position: 'below'
+  },
+  {
+    target: null,
+    title: 'You\'re Ready',
+    body: 'Good luck at Precision Invitational! Record every bout, trust the data, fence your game.',
+    position: 'center',
+    tabSwitch: 'home'
+  }
+];
+
+function startTutorial() {
+  tutorialStep = 0;
+  tutorialActive = true;
+  document.getElementById('tutorial-overlay').classList.add('active');
+  showTutorialStep();
+}
+
+function showTutorialStep() {
+  if(tutorialStep >= TUTORIAL_STEPS.length) {
+    endTutorial();
+    return;
+  }
+
+  var step = TUTORIAL_STEPS[tutorialStep];
+
+  // Switch tab if needed
+  if(step.tabSwitch) {
+    var tabBtns = document.querySelectorAll('.nav-tab');
+    var tabMap = {home:0, intel:1, pool:2, timer:3, pregame:4, debrief:5, history:6};
+    var tabIdx = tabMap[step.tabSwitch];
+    if(tabIdx !== undefined && tabBtns[tabIdx]) {
+      showTab(step.tabSwitch, tabBtns[tabIdx]);
+    }
+  }
+
+  // Find target element
+  var targetEl = null;
+  if(step.target) {
+    targetEl = document.querySelector(step.target);
+  } else if(step.targetSelector) {
+    targetEl = document.querySelector(step.targetSelector);
+  }
+
+  var backdrop = document.getElementById('tutorial-backdrop');
+  var tooltip = document.getElementById('tutorial-tooltip');
+
+  // Position spotlight
+  if(targetEl && step.position !== 'center') {
+    var rect = targetEl.getBoundingClientRect();
+    var pad = 8;
+    var top = rect.top - pad;
+    var left = rect.left - pad;
+    var width = rect.width + pad * 2;
+    var height = rect.height + pad * 2;
+    var r = 12;
+
+    // Clip-path: full screen with a rounded rectangle hole
+    backdrop.style.clipPath = 'polygon(' +
+      '0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ' +
+      (left + r) + 'px ' + top + 'px, ' +
+      (left + width - r) + 'px ' + top + 'px, ' +
+      (left + width) + 'px ' + (top + r) + 'px, ' +
+      (left + width) + 'px ' + (top + height - r) + 'px, ' +
+      (left + width - r) + 'px ' + (top + height) + 'px, ' +
+      (left + r) + 'px ' + (top + height) + 'px, ' +
+      left + 'px ' + (top + height - r) + 'px, ' +
+      left + 'px ' + (top + r) + 'px, ' +
+      (left + r) + 'px ' + top + 'px' +
+      ')';
+
+    // Position tooltip
+    if(step.position === 'below') {
+      tooltip.style.top = (rect.bottom + 12) + 'px';
+      tooltip.style.left = '16px';
+      tooltip.style.right = '16px';
+      tooltip.style.bottom = 'auto';
+      tooltip.style.transform = 'none';
+    } else if(step.position === 'above') {
+      tooltip.style.bottom = (window.innerHeight - rect.top + 12) + 'px';
+      tooltip.style.left = '16px';
+      tooltip.style.right = '16px';
+      tooltip.style.top = 'auto';
+      tooltip.style.transform = 'none';
+    }
+  } else {
+    // Center — no spotlight hole
+    backdrop.style.clipPath = 'none';
+    tooltip.style.top = '50%';
+    tooltip.style.left = '16px';
+    tooltip.style.right = '16px';
+    tooltip.style.bottom = 'auto';
+    tooltip.style.transform = 'translateY(-50%)';
+  }
+
+  // Build tooltip content
+  var isLast = tutorialStep === TUTORIAL_STEPS.length - 1;
+  var html = '';
+  html += '<div class="tut-step-label">STEP ' + (tutorialStep + 1) + ' OF ' + TUTORIAL_STEPS.length + '</div>';
+  html += '<div class="tut-title">' + step.title + '</div>';
+  html += '<div class="tut-body">' + step.body + '</div>';
+  html += '<div class="tut-btns">';
+  if(!isLast) {
+    html += '<button class="tut-btn-skip" onclick="endTutorial()">Skip</button>';
+    html += '<button class="tut-btn-next" onclick="nextTutorialStep()">Next →</button>';
+  } else {
+    html += '<button class="tut-btn-next" onclick="endTutorial()">Get Started →</button>';
+  }
+  html += '</div>';
+
+  // Progress dots
+  html += '<div class="tut-progress">';
+  var di;
+  for(di = 0; di < TUTORIAL_STEPS.length; di++) {
+    var cls = di === tutorialStep ? 'active' : (di < tutorialStep ? 'done' : '');
+    html += '<div class="tut-dot ' + cls + '"></div>';
+  }
+  html += '</div>';
+
+  tooltip.innerHTML = html;
+}
+
+function nextTutorialStep() {
+  tutorialStep++;
+  showTutorialStep();
+}
+
+function endTutorial() {
+  tutorialActive = false;
+  document.getElementById('tutorial-overlay').classList.remove('active');
+  document.getElementById('tutorial-backdrop').style.clipPath = 'none';
+  localStorage.setItem('foiliq_tutorial_done', '1');
+
+  // Return to home tab
+  var homeBtns = document.querySelectorAll('.nav-tab');
+  if(homeBtns[0]) showTab('home', homeBtns[0]);
+
+  showToast('Tutorial complete — you\'re ready!');
+}
+
+function maybeAutoStartTutorial() {
+  if(!localStorage.getItem('foiliq_tutorial_done')) {
+    setTimeout(function() { startTutorial(); }, 600);
+  }
 }
 
 
