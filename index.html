@@ -1099,18 +1099,7 @@ h3 { font-size: 20px; }
     <!-- Setup section -->
     <div class="card">
       <div class="card-header">⚙ Setup</div>
-      <div class="api-section">
-        <label>Anthropic API Key</label>
-        <div class="api-row">
-          <div class="login-pw-wrap" style="flex:1;">
-            <input type="password" id="api-key-input" placeholder="sk-ant-..." value="">
-            <button class="login-pw-toggle" onclick="toggleApiVis()">Show</button>
-          </div>
-          <button class="btn-sm" style="background:var(--gold);color:#070B15;font-weight:700;" onclick="saveApiKey()">Save</button>
-        </div>
-        <div id="api-key-status" style="font-size:12px;color:var(--text3);margin-top:4px;"></div>
-      </div>
-      <div style="margin-top:12px;">
+      <div>
         <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">FencingTracker History</label>
         <div id="ft-history-status"></div>
       </div>
@@ -1661,12 +1650,6 @@ function togglePwVis() {
   else { inp.type = 'password'; btn.textContent = 'Show'; }
 }
 
-function toggleApiVis() {
-  var inp = document.getElementById('api-key-input');
-  var btn = inp.parentElement.querySelector('.login-pw-toggle');
-  if(inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Hide'; }
-  else { inp.type = 'password'; btn.textContent = 'Show'; }
-}
 
 function doLogin() {
   var email = document.getElementById('login-email').value.trim().toLowerCase();
@@ -1700,10 +1683,6 @@ function showApp() {
   // Restore saved fencer
   var saved = localStorage.getItem('foiliq_fencer');
   if(saved && FENCERS[saved]) { switchFencer(saved); }
-
-  // Restore API key
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(apiKey) { document.getElementById('api-key-input').value = apiKey; }
 
   renderHomeTilesNew();
   updateHomeStatus();
@@ -1818,13 +1797,6 @@ function renderHomeTiles() {
   container.innerHTML = html;
 }
 
-function saveApiKey() {
-  var val = document.getElementById('api-key-input').value.trim();
-  if(val) {
-    localStorage.setItem('foiliq_key', val);
-    showStatus('API key saved');
-  }
-}
 
 
 /* ================================================================
@@ -2645,14 +2617,7 @@ function finishPreGame() {
   document.getElementById('pregame-interview').classList.add('hidden');
   document.getElementById('pregame-result').classList.remove('hidden');
 
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(!apiKey) {
-    document.getElementById('pregame-result').innerHTML =
-      '<div class="card"><div class="card-header">PRE-GAME ANALYSIS</div>' +
-      '<p style="color:var(--text2);">Add your Anthropic API key in Home tab to get AI analysis.</p>' +
-      '<button class="btn-outline" style="margin-top:12px;" onclick="backToPreGame()">← Back</button></div>';
-    return;
-  }
+  // AI calls go through Edge Function — no key needed client-side
 
   document.getElementById('pregame-result').innerHTML =
     '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Generating your game plan...</div>';
@@ -3025,12 +2990,6 @@ function selectDESituation(idx, el) {
 function submitDEBreak() {
   if(deBreakSituation < 0) { showStatus('Select a situation'); return; }
 
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(!apiKey) {
-    showStatus('Add API key in Home tab');
-    return;
-  }
-
   var adviceEl = document.getElementById('de-break-advice');
   adviceEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Thinking...</div>';
 
@@ -3337,11 +3296,7 @@ function saveDebriefData() {
 function generateTrainingTargets() {
   saveDebriefData();
 
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(!apiKey) {
-    showFallbackTargets();
-    return;
-  }
+  // AI calls go through Edge Function — no key needed
 
   document.getElementById('debrief-flow').innerHTML =
     '<div class="ai-loading"><div class="ai-loading-dots"><span></span><span></span><span></span></div>Generating training targets...</div>';
@@ -3599,24 +3554,18 @@ function showHistoryView(view, btn) {
    ================================================================ */
 
 function callClaude(userPrompt, callback) {
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(!apiKey) {
-    callback('API key not set. Add it in the Home tab.');
-    return;
-  }
+  var session = JSON.parse(localStorage.getItem('foiliq_session') || '{}');
 
-  fetch('https://api.anthropic.com/v1/messages', {
+  fetch('https://kyfkiigbiwhczrtnlivc.supabase.co/functions/v1/claude-proxy', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       model: 'claude-opus-4-5',
       max_tokens: 2048,
-      messages: [{ role: 'user', content: userPrompt }]
+      messages: [{ role: 'user', content: userPrompt }],
+      user_email: session.email || ''
     })
   })
   .then(function(r) { return r.json(); })
@@ -3630,7 +3579,7 @@ function callClaude(userPrompt, callback) {
     }
   })
   .catch(function(err) {
-    callback('Connection error: ' + err.message + '. Check your internet and API key.');
+    callback('Connection error: ' + err.message + '. Check your internet connection.');
   });
 }
 
@@ -4040,9 +3989,6 @@ function getEventKeyForFencer(f) {
 }
 
 function getPoolTips() {
-  var apiKey = localStorage.getItem('foiliq_key');
-  if(!apiKey) { showStatus('Add API key in Home tab'); return; }
-
   var field = EVENT_MAP[ACTIVE_EVENT].field;
   var bouts = JSON.parse(localStorage.getItem('ft_bouts_'+ACTIVE_FENCER) || '[]');
   var names = [];
@@ -4377,11 +4323,6 @@ function updateHomeStatus() {
   el.innerHTML = html;
 
   // API key status
-  var akEl = document.getElementById('api-key-status');
-  if(akEl) {
-    var hasKey = !!localStorage.getItem('foiliq_key');
-    akEl.innerHTML = hasKey ? '<span style="color:var(--green);">✓ API key set</span>' : '<span style="color:var(--red);">✕ Not set</span>';
-  }
 
   // FT history status
   var ftEl = document.getElementById('ft-history-status');
@@ -4563,16 +4504,11 @@ function openSettings() {
   html += '<button class="btn-outline btn-sm" style="margin-top:8px;" onclick="doSignOut()">Sign Out</button>';
   html += '</div>';
 
-  // API Key
+  // AI — powered by Edge Function (no key needed)
   html += '<div class="settings-group">';
-  html += '<div class="settings-label">API KEY</div>';
-  var hasKey = !!localStorage.getItem('foiliq_key');
-  html += '<div class="settings-row"><span class="settings-row-label">Status</span><span style="color:' + (hasKey ? 'var(--green)' : 'var(--red)') + ';">' + (hasKey ? '✓ Set' : '✕ Not set') + '</span></div>';
-  html += '<div class="api-row" style="margin-top:8px;">';
-  html += '<div class="login-pw-wrap" style="flex:1;"><input type="password" id="settings-api-key" placeholder="sk-ant-..." value="' + (localStorage.getItem('foiliq_key') || '') + '">';
-  html += '<button class="login-pw-toggle" onclick="var i=document.getElementById(\'settings-api-key\');i.type=i.type===\'password\'?\'text\':\'password\';this.textContent=i.type===\'password\'?\'Show\':\'Hide\';">Show</button></div>';
-  html += '<button class="btn-sm" style="background:var(--gold);color:#070B15;font-weight:700;" onclick="localStorage.setItem(\'foiliq_key\',document.getElementById(\'settings-api-key\').value.trim());showStatus(\'API key saved\');">Save</button>';
-  html += '</div></div>';
+  html += '<div class="settings-label">AI</div>';
+  html += '<div class="settings-row"><span class="settings-row-label">Status</span><span style="color:var(--green);">✓ Connected via Edge Function</span></div>';
+  html += '</div>';
 
   // FT History
   html += '<div class="settings-group">';
