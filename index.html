@@ -2064,9 +2064,11 @@ function fetchLivePool() {
         populateLivePools(pools);
         showToast('Pools refreshed — ' + pools.length + ' pool(s)');
       } else {
-        showToast('No pool data found — try a different URL', 'error');
+        showToast('No pool data — URL may have changed', 'warn');
+        showFencingTimeUrlPrompt('pool');
       }
     }, function(err) {
+      showToast('Fetch failed — enter new URL', 'error');
       showFencingTimeUrlPrompt('pool');
     });
   } else {
@@ -2074,50 +2076,94 @@ function fetchLivePool() {
   }
 }
 
+function clearFencingTimeUrl() {
+  localStorage.removeItem('fencingtime_pool_url');
+  showToast('FencingTime URL cleared');
+}
+
 function parseFencingTimePools(html) {
+  // FencingTime Live format: "GANAPATHI Eshan", "TSUI Raedyn Ho Hin"
+  // ALL-CAPS last name followed by mixed-case first name(s)
   var parser = new DOMParser();
   var doc = parser.parseFromString(html, 'text/html');
+  var text = doc.body ? doc.body.innerText : html;
   var pools = [];
-  var rows = doc.querySelectorAll('tr');
-  var currentPool = {num: 1, fencers: []};
-  var ri;
 
-  for(ri = 0; ri < rows.length; ri++) {
-    var cells = rows[ri].querySelectorAll('td');
-    if(cells.length >= 2) {
-      var nameCell = cells[0].textContent.trim();
-      var clubCell = cells[1] ? cells[1].textContent.trim() : '';
-      if(nameCell && nameCell.length > 2 && !nameCell.match(/^\d+$/) && nameCell !== 'Name') {
-        var parts = nameCell.split(' ');
-        var last = parts[0] || '';
-        var first = parts.slice(1).join(' ') || '';
-        currentPool.fencers.push({last: last, first: first, club: clubCell, raw: nameCell});
-      }
+  // Split on "Pool #N" boundaries
+  var poolBlocks = text.split(/Pool\s*#\s*(\d+)/);
+  // poolBlocks: ['...preamble', '1', '...pool1 content', '2', '...pool2 content', ...]
+  var bi;
+  for(bi = 1; bi < poolBlocks.length; bi += 2) {
+    var poolNum = parseInt(poolBlocks[bi]);
+    var block = poolBlocks[bi + 1] || '';
+    var fencers = extractFencerNames(block);
+    if(fencers.length > 0) {
+      pools.push({num: poolNum, fencers: fencers});
     }
   }
-  if(currentPool.fencers.length > 0) pools.push(currentPool);
 
-  // Fallback: parse from raw text if table parsing found nothing
-  if(pools.length === 0 || (pools.length === 1 && pools[0].fencers.length === 0)) {
-    pools = [];
-    var text = doc.body ? doc.body.innerText : '';
-    var poolMatches = text.match(/Pool #?\d+[\s\S]*?(?=Pool #?\d+|$)/g) || [];
-    var pi;
-    for(pi = 0; pi < poolMatches.length; pi++) {
-      var lines = poolMatches[pi].split('\n');
-      var fencers = [];
-      var li;
-      for(li = 0; li < lines.length; li++) {
-        var line = lines[li].trim();
-        if(line.match(/^[A-Z]{2,}\s+[A-Za-z]/)) {
-          var lParts = line.split(/\s+/);
-          fencers.push({last: lParts[0], first: lParts.slice(1).join(' '), raw: line});
-        }
-      }
-      if(fencers.length > 0) pools.push({num: pi + 1, fencers: fencers});
+  // Fallback: if no "Pool #" markers, treat entire text as one pool
+  if(pools.length === 0) {
+    var allFencers = extractFencerNames(text);
+    if(allFencers.length > 0) {
+      pools.push({num: 1, fencers: allFencers});
     }
   }
+
   return pools;
+}
+
+function extractFencerNames(text) {
+  // Match: ALL-CAPS word (2+ letters) followed by mixed-case name
+  // e.g. "GANAPATHI Eshan", "TSUI Raedyn Ho Hin", "FOY Grant"
+  // Excludes common headers: POOL, USA, PRIMEFA, etc.
+  var nameRegex = /\b([A-Z]{2,})\s+([A-Z][a-z][A-Za-z\s]*?)(?=\s+[A-Z]{2,}\s|$|\n|\r|\/)/g;
+  var fencers = [];
+  var seen = {};
+  var match;
+  var skipWords = {
+    'POOL':'1','DETAILS':'1','STRIP':'1','USA':'1','IND':'1','BOUT':'1',
+    'SCORE':'1','RESULT':'1','NAME':'1','CLUB':'1','ROUND':'1','TABLE':'1',
+    'VICTORY':'1','DEFEAT':'1','TOUCHES':'1','INDICATOR':'1','PLACE':'1',
+    'NORTHERN':'1','SOUTHERN':'1','WESTERN':'1','CALIFORNIA':'1'
+  };
+
+  // Also try line-by-line for cleaner parsing
+  var lines = text.split(/\n/);
+  var li;
+  for(li = 0; li < lines.length; li++) {
+    var line = lines[li].trim();
+    // Match "LASTNAME Firstname..." at start of content segments
+    var lineMatch = line.match(/^([A-Z]{2,})\s+([A-Z][a-z][A-Za-z\s]*?)(?:\s{2,}|$)/);
+    if(lineMatch && !skipWords[lineMatch[1]]) {
+      var last = lineMatch[1];
+      var first = lineMatch[2].trim();
+      // Remove trailing club/country info
+      first = first.replace(/\s+(PRIMEFA|SOCAL|LAIFC|AGFC|USA|Northern|Southern).*$/i, '').trim();
+      var key = last + '_' + first;
+      if(!seen[key] && first.length > 0) {
+        seen[key] = true;
+        fencers.push({last: last, first: first, raw: last + ' ' + first});
+      }
+    }
+  }
+
+  // If line-by-line found nothing, use regex on full text
+  if(fencers.length === 0) {
+    while((match = nameRegex.exec(text)) !== null) {
+      var rLast = match[1];
+      var rFirst = match[2].trim();
+      if(skipWords[rLast]) continue;
+      rFirst = rFirst.replace(/\s+(PRIMEFA|SOCAL|LAIFC|AGFC|USA|Northern|Southern).*$/i, '').trim();
+      var rKey = rLast + '_' + rFirst;
+      if(!seen[rKey] && rFirst.length > 0) {
+        seen[rKey] = true;
+        fencers.push({last: rLast, first: rFirst, raw: rLast + ' ' + rFirst});
+      }
+    }
+  }
+
+  return fencers;
 }
 
 function populateLivePools(pools) {
@@ -2144,7 +2190,7 @@ function populateLivePools(pools) {
   for(i = 0; i < opponents.length; i++) {
     var input = document.getElementById('pool-fencer-' + (i + 1));
     if(input) {
-      var displayName = opponents[i].last.charAt(0) + opponents[i].last.slice(1).toLowerCase();
+      var displayName = opponents[i].last.charAt(0).toUpperCase() + opponents[i].last.slice(1).toLowerCase();
       input.value = displayName;
     }
   }
