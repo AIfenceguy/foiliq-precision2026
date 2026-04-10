@@ -1272,6 +1272,7 @@ h3 { font-size: 20px; }
           <div class="intel-event-tabs" id="pregame-event-tabs"></div>
         </div>
         <button class="btn-gold" onclick="startPreGame()">🧠 Start Pre-Game Interview →</button>
+        <button class="btn-outline" style="margin-top:8px;" onclick="fetchLiveDE()">🏆 Load DE Bracket Live</button>
       </div>
       <div id="pregame-saved-plans"></div>
       <!-- Competition day sub-modes will be injected here -->
@@ -1436,6 +1437,30 @@ var ACTIVE_FENCER = 'raedyn';
 var ACTIVE_EVENT = 'jnr';
 var FENCER_MODE = false; // false = parent, true = fencer
 var CURRENT_TAB = 'home';
+var EDGE_URL = 'https://kyfkiigbiwhczrtnlivc.supabase.co/functions/v1/claude-proxy';
+
+function getSessionEmail() {
+  try { return JSON.parse(localStorage.getItem('foiliq_session') || '{}').email || ''; }
+  catch(e) { return ''; }
+}
+
+function fetchViaEdge(url, onSuccess, onError) {
+  fetch(EDGE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'fetch_url',
+      url: url,
+      user_email: getSessionEmail()
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if(data.error) { if(onError) onError(data.error); return; }
+    if(onSuccess) onSuccess(data.html);
+  })
+  .catch(function(e) { if(onError) onError(e.message); });
+}
 
 /* ===== SUPABASE CLIENT ===== */
 var SUPABASE_URL = 'https://kyfkiigbiwhczrtnlivc.supabase.co';
@@ -2030,18 +2055,206 @@ function renderPoolInputs() {
 }
 
 function fetchLivePool() {
-  var fencer = FENCERS[ACTIVE_FENCER];
-  showStatus('Checking FencingTracker for live pool data...');
-  var proxy = 'https://api.allorigins.win/get?url=';
-  var url = proxy + encodeURIComponent(fencer.ft_url);
-  fetch(url)
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      showStatus('Live pool data not yet available — check closer to event');
-    })
-    .catch(function(){
-      showStatus('Could not reach FencingTracker — check connection');
+  var savedUrl = localStorage.getItem('fencingtime_pool_url');
+  if(savedUrl) {
+    showToast('Refreshing from FencingTime...');
+    fetchViaEdge(savedUrl, function(html) {
+      var pools = parseFencingTimePools(html);
+      if(pools.length > 0) {
+        populateLivePools(pools);
+        showToast('Pools refreshed — ' + pools.length + ' pool(s)');
+      } else {
+        showToast('No pool data found — try a different URL', 'error');
+      }
+    }, function(err) {
+      showFencingTimeUrlPrompt('pool');
     });
+  } else {
+    showFencingTimeUrlPrompt('pool');
+  }
+}
+
+function parseFencingTimePools(html) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  var pools = [];
+  var rows = doc.querySelectorAll('tr');
+  var currentPool = {num: 1, fencers: []};
+  var ri;
+
+  for(ri = 0; ri < rows.length; ri++) {
+    var cells = rows[ri].querySelectorAll('td');
+    if(cells.length >= 2) {
+      var nameCell = cells[0].textContent.trim();
+      var clubCell = cells[1] ? cells[1].textContent.trim() : '';
+      if(nameCell && nameCell.length > 2 && !nameCell.match(/^\d+$/) && nameCell !== 'Name') {
+        var parts = nameCell.split(' ');
+        var last = parts[0] || '';
+        var first = parts.slice(1).join(' ') || '';
+        currentPool.fencers.push({last: last, first: first, club: clubCell, raw: nameCell});
+      }
+    }
+  }
+  if(currentPool.fencers.length > 0) pools.push(currentPool);
+
+  // Fallback: parse from raw text if table parsing found nothing
+  if(pools.length === 0 || (pools.length === 1 && pools[0].fencers.length === 0)) {
+    pools = [];
+    var text = doc.body ? doc.body.innerText : '';
+    var poolMatches = text.match(/Pool #?\d+[\s\S]*?(?=Pool #?\d+|$)/g) || [];
+    var pi;
+    for(pi = 0; pi < poolMatches.length; pi++) {
+      var lines = poolMatches[pi].split('\n');
+      var fencers = [];
+      var li;
+      for(li = 0; li < lines.length; li++) {
+        var line = lines[li].trim();
+        if(line.match(/^[A-Z]{2,}\s+[A-Za-z]/)) {
+          var lParts = line.split(/\s+/);
+          fencers.push({last: lParts[0], first: lParts.slice(1).join(' '), raw: line});
+        }
+      }
+      if(fencers.length > 0) pools.push({num: pi + 1, fencers: fencers});
+    }
+  }
+  return pools;
+}
+
+function populateLivePools(pools) {
+  var fencerLast = 'TSUI';
+  var myPool = null;
+  var pi, fi;
+  for(pi = 0; pi < pools.length; pi++) {
+    for(fi = 0; fi < pools[pi].fencers.length; fi++) {
+      if(pools[pi].fencers[fi].last.toUpperCase() === fencerLast) {
+        myPool = pools[pi];
+        break;
+      }
+    }
+    if(myPool) break;
+  }
+  if(!myPool) myPool = pools[0];
+  if(!myPool) return;
+
+  var opponents = myPool.fencers.filter(function(f) {
+    return f.last.toUpperCase() !== fencerLast;
+  });
+
+  var i;
+  for(i = 0; i < opponents.length; i++) {
+    var input = document.getElementById('pool-fencer-' + (i + 1));
+    if(input) {
+      var displayName = opponents[i].last.charAt(0) + opponents[i].last.slice(1).toLowerCase();
+      input.value = displayName;
+    }
+  }
+  for(i = opponents.length + 1; i <= 7; i++) {
+    var inp = document.getElementById('pool-fencer-' + i);
+    if(inp) inp.value = '';
+  }
+}
+
+function showFencingTimeUrlPrompt(type) {
+  var existing = document.getElementById('ft-url-prompt');
+  if(existing) existing.remove();
+
+  var div = document.createElement('div');
+  div.id = 'ft-url-prompt';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = '<div style="background:var(--bg3);border:1px solid var(--gold-border);border-radius:14px;padding:24px;width:100%;max-width:400px">' +
+    '<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:var(--gold);margin-bottom:8px;">PASTE FENCINGTIME URL</div>' +
+    '<div style="color:var(--text2);font-size:13px;margin-bottom:16px;">Go to fencingtimelive.com → Pools → copy the URL from your browser</div>' +
+    '<input id="ft-url-input" type="url" placeholder="https://www.fencingtimelive.com/pools/scores/..." style="margin-bottom:12px;">' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn-outline" style="flex:1;" onclick="document.getElementById(\'ft-url-prompt\').remove()">Cancel</button>' +
+    '<button class="btn-gold" style="flex:2;" onclick="useFencingTimeUrl()">Fetch Pools →</button>' +
+    '</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function() { document.getElementById('ft-url-input').focus(); }, 100);
+}
+
+function useFencingTimeUrl() {
+  var input = document.getElementById('ft-url-input');
+  var url = input ? input.value.trim() : '';
+  if(!url) return;
+  localStorage.setItem('fencingtime_pool_url', url);
+  document.getElementById('ft-url-prompt').remove();
+
+  showToast('Fetching pools...');
+  fetchViaEdge(url, function(html) {
+    var pools = parseFencingTimePools(html);
+    if(pools.length === 0) {
+      showToast('No pools found — try the Pools tab URL', 'error');
+      return;
+    }
+    populateLivePools(pools);
+    showToast('Pool loaded — ' + pools.length + ' pool(s)');
+  }, function(err) {
+    showToast('Failed: ' + err, 'error');
+  });
+}
+
+function fetchLiveDE() {
+  showFencingTimeDEPrompt();
+}
+
+function showFencingTimeDEPrompt() {
+  var existing = document.getElementById('ft-de-prompt');
+  if(existing) existing.remove();
+
+  var div = document.createElement('div');
+  div.id = 'ft-de-prompt';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = '<div style="background:var(--bg3);border:1px solid var(--gold-border);border-radius:14px;padding:24px;width:100%;max-width:400px">' +
+    '<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:var(--gold);margin-bottom:8px;">PASTE DE RESULTS URL</div>' +
+    '<div style="color:var(--text2);font-size:13px;margin-bottom:16px;">Go to fencingtimelive.com → Results → copy URL</div>' +
+    '<input id="ft-de-input" type="url" placeholder="https://www.fencingtimelive.com/tableaux/..." style="margin-bottom:12px;">' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn-outline" style="flex:1;" onclick="document.getElementById(\'ft-de-prompt\').remove()">Cancel</button>' +
+    '<button class="btn-gold" style="flex:2;" onclick="useFencingTimeDEUrl()">Load DE →</button>' +
+    '</div></div>';
+  document.body.appendChild(div);
+  setTimeout(function() { document.getElementById('ft-de-input').focus(); }, 100);
+}
+
+function useFencingTimeDEUrl() {
+  var input = document.getElementById('ft-de-input');
+  var url = input ? input.value.trim() : '';
+  if(!url) return;
+  localStorage.setItem('fencingtime_de_url', url);
+  document.getElementById('ft-de-prompt').remove();
+
+  showToast('Loading DE bracket...');
+  fetchViaEdge(url, function(html) {
+    var deData = parseFencingTimeDE(html);
+    if(!deData || !deData.found) {
+      showToast('Fencer not yet in DE results', 'warn');
+      return;
+    }
+    localStorage.setItem('de_results_' + ACTIVE_FENCER, JSON.stringify(deData));
+    showToast('DE found: ' + deData.bouts.length + ' bout(s)');
+  }, function(err) {
+    showToast('Failed: ' + err, 'error');
+  });
+}
+
+function parseFencingTimeDE(html) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  var text = doc.body ? doc.body.innerText : '';
+  var lines = text.split('\n');
+  var results = {fencer: ACTIVE_FENCER, bouts: [], found: false};
+  var i;
+  for(i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if(line.toUpperCase().indexOf('TSUI') !== -1) {
+      results.found = true;
+      var context = lines.slice(Math.max(0, i - 2), i + 3).join(' | ');
+      results.bouts.push(context);
+    }
+  }
+  results.raw = lines.slice(0, 50).join('\n');
+  return results;
 }
 
 function analyzePool() {
@@ -3554,18 +3767,15 @@ function showHistoryView(view, btn) {
    ================================================================ */
 
 function callClaude(userPrompt, callback) {
-  var session = JSON.parse(localStorage.getItem('foiliq_session') || '{}');
-
-  fetch('https://kyfkiigbiwhczrtnlivc.supabase.co/functions/v1/claude-proxy', {
+  fetch(EDGE_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      action: 'claude',
+      user_email: getSessionEmail(),
       model: 'claude-opus-4-5',
       max_tokens: 2048,
-      messages: [{ role: 'user', content: userPrompt }],
-      user_email: session.email || ''
+      messages: [{ role: 'user', content: userPrompt }]
     })
   })
   .then(function(r) { return r.json(); })
