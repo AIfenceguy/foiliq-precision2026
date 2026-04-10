@@ -2054,55 +2054,179 @@ function renderPoolInputs() {
   container.innerHTML = html;
 }
 
+/* ================================================================
+   FENCINGTIME LIVE POOL FETCH — TWO MODES
+   Mode 1: Edge Function proxy (automatic, works if FT serves static HTML)
+   Mode 2: Paste text fallback (bulletproof — user copies rendered page text)
+   ================================================================ */
+
 function fetchLivePool() {
   var savedUrl = localStorage.getItem('fencingtime_pool_url');
   if(savedUrl) {
+    // Auto-refresh from saved URL via Edge Function
     showToast('Refreshing from FencingTime...');
     fetchViaEdge(savedUrl, function(html) {
       var pools = parseFencingTimePools(html);
-      if(pools.length > 0) {
+      if(pools.length > 0 && countRealFencers(pools) >= 2) {
         populateLivePools(pools);
-        showToast('Pools refreshed — ' + pools.length + ' pool(s)');
+        showToast('Pools loaded — ' + countRealFencers(pools) + ' fencers found');
       } else {
-        showToast('No pool data — URL may have changed', 'warn');
-        showFencingTimeUrlPrompt('pool');
+        // Server fetch got empty/JS-rendered page — fall back to paste mode
+        showFTImportPrompt(savedUrl);
       }
     }, function(err) {
-      showToast('Fetch failed — enter new URL', 'error');
-      showFencingTimeUrlPrompt('pool');
+      showFTImportPrompt(savedUrl);
     });
   } else {
-    showFencingTimeUrlPrompt('pool');
+    showFTImportPrompt(null);
   }
 }
 
-function clearFencingTimeUrl() {
-  localStorage.removeItem('fencingtime_pool_url');
-  showToast('FencingTime URL cleared');
+function countRealFencers(pools) {
+  var count = 0;
+  var i;
+  for(i = 0; i < pools.length; i++) count += pools[i].fencers.length;
+  return count;
 }
 
+function showFTImportPrompt(savedUrl) {
+  var existing = document.getElementById('ft-import-prompt');
+  if(existing) existing.remove();
+
+  var urlVal = savedUrl || '';
+  var div = document.createElement('div');
+  div.id = 'ft-import-prompt';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:5000;display:flex;align-items:flex-start;justify-content:center;padding:16px;padding-top:calc(16px + env(safe-area-inset-top));overflow-y:auto;';
+
+  div.innerHTML =
+    '<div style="background:var(--bg3);border:1px solid var(--gold-border);border-radius:14px;padding:20px;width:100%;max-width:420px;margin-top:20px;">' +
+
+    '<div style="font-family:Bebas Neue,sans-serif;font-size:22px;color:var(--gold);margin-bottom:12px;">IMPORT LIVE POOLS</div>' +
+
+    // Step 1: URL
+    '<div style="margin-bottom:16px;">' +
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:6px;font-weight:600;">1. FencingTime URL</div>' +
+    '<input id="ft-url-input" type="url" value="' + urlVal + '" placeholder="https://www.fencingtimelive.com/pools/..." style="margin-bottom:6px;">' +
+    '<div style="display:flex;gap:6px;">' +
+    '<button class="btn-sm" style="flex:1;background:var(--gold);color:#070B15;font-weight:700;" onclick="ftTryServerFetch()">Fetch via Server</button>' +
+    '<button class="btn-sm" style="background:var(--bg2);color:var(--gold);border:1px solid var(--gold-border);" onclick="ftOpenInNewTab()">Open in Tab ↗</button>' +
+    '</div>' +
+    '</div>' +
+
+    // Step 2: Paste fallback
+    '<div style="margin-bottom:16px;">' +
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:6px;font-weight:600;">2. Or paste the page text here</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Open FencingTime in your browser → Select All (Ctrl+A) → Copy → Paste below</div>' +
+    '<textarea id="ft-paste-input" placeholder="Paste FencingTime page text here...\n\nPool #1 Details\nGANAPATHI Eshan\nSUMIN Yang\n..." style="min-height:140px;font-size:14px;"></textarea>' +
+    '<button class="btn-gold" style="margin-top:6px;" onclick="ftParsePastedText()">📥 Import from Pasted Text</button>' +
+    '</div>' +
+
+    // Status
+    '<div id="ft-import-status" style="font-size:12px;color:var(--text2);text-align:center;margin-bottom:12px;min-height:18px;"></div>' +
+
+    // Cancel
+    '<button class="btn-outline btn-sm" style="width:100%;" onclick="closeFTImportPrompt()">Cancel</button>' +
+    '</div>';
+
+  document.body.appendChild(div);
+  setTimeout(function() {
+    var urlInput = document.getElementById('ft-url-input');
+    if(urlInput && !urlInput.value) urlInput.focus();
+  }, 100);
+}
+
+function closeFTImportPrompt() {
+  var el = document.getElementById('ft-import-prompt');
+  if(el) el.remove();
+}
+
+function ftTryServerFetch() {
+  var urlInput = document.getElementById('ft-url-input');
+  var url = urlInput ? urlInput.value.trim() : '';
+  if(!url) { showToast('Enter a URL first', 'warn'); return; }
+
+  localStorage.setItem('fencingtime_pool_url', url);
+  var status = document.getElementById('ft-import-status');
+  if(status) status.textContent = 'Fetching via server...';
+
+  fetchViaEdge(url, function(html) {
+    var pools = parseFencingTimePools(html);
+    if(pools.length > 0 && countRealFencers(pools) >= 2) {
+      closeFTImportPrompt();
+      populateLivePools(pools);
+      showToast('Pools loaded — ' + countRealFencers(pools) + ' fencers');
+    } else {
+      if(status) status.innerHTML = '<span style="color:var(--gold);">Server got empty page — FencingTime may render client-side.<br>Use the paste method below instead.</span>';
+    }
+  }, function(err) {
+    if(status) status.innerHTML = '<span style="color:var(--red);">Server fetch failed: ' + err + '<br>Use the paste method below.</span>';
+  });
+}
+
+function ftOpenInNewTab() {
+  var urlInput = document.getElementById('ft-url-input');
+  var url = urlInput ? urlInput.value.trim() : '';
+  if(!url) { showToast('Enter a URL first', 'warn'); return; }
+  localStorage.setItem('fencingtime_pool_url', url);
+  window.open(url, '_blank');
+  var status = document.getElementById('ft-import-status');
+  if(status) status.innerHTML = '<span style="color:var(--gold);">FencingTime opened → Select All → Copy → Paste below</span>';
+}
+
+function ftParsePastedText() {
+  var textarea = document.getElementById('ft-paste-input');
+  var text = textarea ? textarea.value.trim() : '';
+  if(!text || text.length < 20) {
+    showToast('Paste the FencingTime page text first', 'warn');
+    return;
+  }
+
+  var pools = parseFencingTimeText(text);
+  if(pools.length === 0 || countRealFencers(pools) < 2) {
+    var status = document.getElementById('ft-import-status');
+    if(status) status.innerHTML = '<span style="color:var(--red);">Could not find pool data in pasted text.<br>Make sure you copied the entire page (Ctrl+A → Ctrl+C).</span>';
+    return;
+  }
+
+  closeFTImportPrompt();
+  populateLivePools(pools);
+  showToast('Pools imported — ' + countRealFencers(pools) + ' fencers from ' + pools.length + ' pool(s)');
+}
+
+
+/* ================================================================
+   FENCINGTIME PARSER — handles both HTML and raw text
+   ================================================================ */
+
 function parseFencingTimePools(html) {
-  // FencingTime Live format: "GANAPATHI Eshan", "TSUI Raedyn Ho Hin"
-  // ALL-CAPS last name followed by mixed-case first name(s)
+  // Try to extract text from HTML first
   var parser = new DOMParser();
   var doc = parser.parseFromString(html, 'text/html');
   var text = doc.body ? doc.body.innerText : html;
+  return parseFencingTimeText(text);
+}
+
+function parseFencingTimeText(text) {
+  // FencingTime Live format:
+  //   "Pool #1 Details On strip D1"
+  //   "GANAPATHI Eshan  PRIMEFA / Northern California / USA"
+  //   "SUMIN Yang  SoCAL Fencing Center / Southern California / USA"
   var pools = [];
 
   // Split on "Pool #N" boundaries
-  var poolBlocks = text.split(/Pool\s*#\s*(\d+)/);
-  // poolBlocks: ['...preamble', '1', '...pool1 content', '2', '...pool2 content', ...]
+  // regex split captures the number as group, giving: [preamble, '1', content, '2', content, ...]
+  var parts = text.split(/Pool\s*#(\d+)/);
   var bi;
-  for(bi = 1; bi < poolBlocks.length; bi += 2) {
-    var poolNum = parseInt(poolBlocks[bi]);
-    var block = poolBlocks[bi + 1] || '';
+  for(bi = 1; bi < parts.length; bi += 2) {
+    var poolNum = parseInt(parts[bi]);
+    var block = parts[bi + 1] || '';
     var fencers = extractFencerNames(block);
     if(fencers.length > 0) {
       pools.push({num: poolNum, fencers: fencers});
     }
   }
 
-  // Fallback: if no "Pool #" markers, treat entire text as one pool
+  // Fallback: no "Pool #" markers — treat entire text as one pool
   if(pools.length === 0) {
     var allFencers = extractFencerNames(text);
     if(allFencers.length > 0) {
@@ -2114,59 +2238,78 @@ function parseFencingTimePools(html) {
 }
 
 function extractFencerNames(text) {
-  // Match: ALL-CAPS word (2+ letters) followed by mixed-case name
-  // e.g. "GANAPATHI Eshan", "TSUI Raedyn Ho Hin", "FOY Grant"
-  // Excludes common headers: POOL, USA, PRIMEFA, etc.
-  var nameRegex = /\b([A-Z]{2,})\s+([A-Z][a-z][A-Za-z\s]*?)(?=\s+[A-Z]{2,}\s|$|\n|\r|\/)/g;
-  var fencers = [];
-  var seen = {};
-  var match;
+  // FencingTime name format: "LASTNAME Firstname" or "LASTNAME Firstname Middlename"
+  // ALL-CAPS last name (2+ chars), then space, then mixed-case first (starts uppercase then lowercase)
+  // Multi-word last names: "DE LA CRUZ Miguel" — all caps words before the first mixed-case word
+  //
+  // Known non-fencer words to skip:
   var skipWords = {
-    'POOL':'1','DETAILS':'1','STRIP':'1','USA':'1','IND':'1','BOUT':'1',
-    'SCORE':'1','RESULT':'1','NAME':'1','CLUB':'1','ROUND':'1','TABLE':'1',
-    'VICTORY':'1','DEFEAT':'1','TOUCHES':'1','INDICATOR':'1','PLACE':'1',
-    'NORTHERN':'1','SOUTHERN':'1','WESTERN':'1','CALIFORNIA':'1'
+    'POOL':1,'DETAILS':1,'STRIP':1,'USA':1,'IND':1,'BOUT':1,'ON':1,
+    'SCORE':1,'RESULT':1,'NAME':1,'CLUB':1,'ROUND':1,'TABLE':1,'THE':1,
+    'VICTORY':1,'DEFEAT':1,'TOUCHES':1,'INDICATOR':1,'PLACE':1,'REF':1,
+    'NORTHERN':1,'SOUTHERN':1,'WESTERN':1,'CALIFORNIA':1,'REFEREE':1,
+    'FENCING':1,'CENTER':1,'ACADEMY':1,'INTERNATIONAL':1,'FOUNDATION':1,
+    'TEAM':1,'ELITE':1,'UNITED':1,'PRECISION':1,'ATHLETICS':1
   };
 
-  // Also try line-by-line for cleaner parsing
-  var lines = text.split(/\n/);
+  var fencers = [];
+  var seen = {};
+
+  // Strategy: scan each line for the pattern
+  // "ALLCAPS Word" where ALLCAPS is 2+ uppercase letters and Word starts upper then lower
+  var lines = text.split(/[\n\r]+/);
   var li;
   for(li = 0; li < lines.length; li++) {
     var line = lines[li].trim();
-    // Match "LASTNAME Firstname..." at start of content segments
-    var lineMatch = line.match(/^([A-Z]{2,})\s+([A-Z][a-z][A-Za-z\s]*?)(?:\s{2,}|$)/);
-    if(lineMatch && !skipWords[lineMatch[1]]) {
-      var last = lineMatch[1];
-      var first = lineMatch[2].trim();
-      // Remove trailing club/country info
-      first = first.replace(/\s+(PRIMEFA|SOCAL|LAIFC|AGFC|USA|Northern|Southern).*$/i, '').trim();
-      var key = last + '_' + first;
-      if(!seen[key] && first.length > 0) {
-        seen[key] = true;
-        fencers.push({last: last, first: first, raw: last + ' ' + first});
-      }
-    }
-  }
+    if(line.length < 4) continue;
 
-  // If line-by-line found nothing, use regex on full text
-  if(fencers.length === 0) {
-    while((match = nameRegex.exec(text)) !== null) {
-      var rLast = match[1];
-      var rFirst = match[2].trim();
-      if(skipWords[rLast]) continue;
-      rFirst = rFirst.replace(/\s+(PRIMEFA|SOCAL|LAIFC|AGFC|USA|Northern|Southern).*$/i, '').trim();
-      var rKey = rLast + '_' + rFirst;
-      if(!seen[rKey] && rFirst.length > 0) {
-        seen[rKey] = true;
-        fencers.push({last: rLast, first: rFirst, raw: rLast + ' ' + rFirst});
-      }
-    }
+    // Match: one or more ALL-CAPS words, then a Capitalized word
+    // e.g. "GANAPATHI Eshan", "TSUI Raedyn Ho Hin", "DE LA CRUZ Miguel"
+    var m = line.match(/^((?:[A-Z]{2,}\s+)+)([A-Z][a-z].*)$/);
+    if(!m) continue;
+
+    var capsSection = m[1].trim();
+    var restSection = m[2].trim();
+
+    // The caps section is the last name (could be multi-word)
+    var capsWords = capsSection.split(/\s+/);
+
+    // Skip if first caps word is a known non-fencer word
+    if(skipWords[capsWords[0]]) continue;
+
+    // Skip if too many caps words (probably a header/sentence)
+    if(capsWords.length > 3) continue;
+
+    var lastName = capsWords.join(' ');
+
+    // The rest is first name — strip club/region info after 2+ spaces or /
+    var firstName = restSection.replace(/\s{2,}.*$/, '').replace(/\s*\/.*$/, '').trim();
+    // Also strip if it contains known club words
+    firstName = firstName.replace(/\s+(PRIMEFA|SoCAL|SOCAL|LAIFC|AGFC|Golubitsky|Elite|United|Massialas|Team|Touche|Precision|Swordplay|Bay Area|Fresno|ValorUSA).*$/i, '').trim();
+
+    if(firstName.length === 0) continue;
+
+    var key = lastName + '|' + firstName;
+    if(seen[key]) continue;
+    seen[key] = true;
+
+    fencers.push({
+      last: lastName,
+      first: firstName,
+      raw: lastName + ' ' + firstName
+    });
   }
 
   return fencers;
 }
 
+
+/* ================================================================
+   POPULATE POOL INPUTS FROM PARSED DATA
+   ================================================================ */
+
 function populateLivePools(pools) {
+  // Find the pool containing our fencer (Tsui)
   var fencerLast = 'TSUI';
   var myPool = null;
   var pi, fi;
@@ -2182,6 +2325,7 @@ function populateLivePools(pools) {
   if(!myPool) myPool = pools[0];
   if(!myPool) return;
 
+  // Filter out our fencer, populate inputs
   var opponents = myPool.fencers.filter(function(f) {
     return f.last.toUpperCase() !== fencerLast;
   });
@@ -2190,54 +2334,22 @@ function populateLivePools(pools) {
   for(i = 0; i < opponents.length; i++) {
     var input = document.getElementById('pool-fencer-' + (i + 1));
     if(input) {
-      var displayName = opponents[i].last.charAt(0).toUpperCase() + opponents[i].last.slice(1).toLowerCase();
+      // Capitalize: "GANAPATHI" → "Ganapathi"
+      var words = opponents[i].last.split(/\s+/);
+      var displayName = words.map(function(w) {
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      }).join(' ');
       input.value = displayName;
     }
   }
+  // Clear remaining slots
   for(i = opponents.length + 1; i <= 7; i++) {
     var inp = document.getElementById('pool-fencer-' + i);
     if(inp) inp.value = '';
   }
-}
 
-function showFencingTimeUrlPrompt(type) {
-  var existing = document.getElementById('ft-url-prompt');
-  if(existing) existing.remove();
-
-  var div = document.createElement('div');
-  div.id = 'ft-url-prompt';
-  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px';
-  div.innerHTML = '<div style="background:var(--bg3);border:1px solid var(--gold-border);border-radius:14px;padding:24px;width:100%;max-width:400px">' +
-    '<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:var(--gold);margin-bottom:8px;">PASTE FENCINGTIME URL</div>' +
-    '<div style="color:var(--text2);font-size:13px;margin-bottom:16px;">Go to fencingtimelive.com → Pools → copy the URL from your browser</div>' +
-    '<input id="ft-url-input" type="url" placeholder="https://www.fencingtimelive.com/pools/scores/..." style="margin-bottom:12px;">' +
-    '<div style="display:flex;gap:8px">' +
-    '<button class="btn-outline" style="flex:1;" onclick="document.getElementById(\'ft-url-prompt\').remove()">Cancel</button>' +
-    '<button class="btn-gold" style="flex:2;" onclick="useFencingTimeUrl()">Fetch Pools →</button>' +
-    '</div></div>';
-  document.body.appendChild(div);
-  setTimeout(function() { document.getElementById('ft-url-input').focus(); }, 100);
-}
-
-function useFencingTimeUrl() {
-  var input = document.getElementById('ft-url-input');
-  var url = input ? input.value.trim() : '';
-  if(!url) return;
-  localStorage.setItem('fencingtime_pool_url', url);
-  document.getElementById('ft-url-prompt').remove();
-
-  showToast('Fetching pools...');
-  fetchViaEdge(url, function(html) {
-    var pools = parseFencingTimePools(html);
-    if(pools.length === 0) {
-      showToast('No pools found — try the Pools tab URL', 'error');
-      return;
-    }
-    populateLivePools(pools);
-    showToast('Pool loaded — ' + pools.length + ' pool(s)');
-  }, function(err) {
-    showToast('Failed: ' + err, 'error');
-  });
+  // Auto-trigger pool analysis
+  if(typeof analyzePool === 'function') analyzePool();
 }
 
 function fetchLiveDE() {
