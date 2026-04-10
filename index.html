@@ -1132,6 +1132,11 @@ h3 { font-size: 20px; }
       <div id="pool-search-results" class="hidden" style="margin-top:8px;"></div>
       <div id="pool-search-count" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+      <button onclick="autoFetchPools('jnr')" style="padding:12px 8px;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.4);color:#C9A84C;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;min-height:56px;">📡 JNR<br><span style="font-size:10px;opacity:.7;">Raedyn · Fri</span></button>
+      <button onclick="autoFetchPools('y12')" style="padding:12px 8px;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.4);color:#C9A84C;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;min-height:56px;">📡 Y12<br><span style="font-size:10px;opacity:.7;">Kaylan · Sat</span></button>
+      <button onclick="autoFetchPools('y14')" style="padding:12px 8px;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.4);color:#C9A84C;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;min-height:56px;">📡 Y14<br><span style="font-size:10px;opacity:.7;">Both · Sun</span></button>
+    </div>
     <div class="card">
       <div class="card-header">Enter Pool Fencers</div>
       <div id="pool-inputs"></div>
@@ -1661,6 +1666,13 @@ var EVENT_MAP = {
 var FENCER_EVENTS = {
   raedyn: ['jnr','y14'],
   kaylan: ['y12','y14']
+};
+
+/* ===== PRECISION INVITATIONAL EVENT IDs (FencingTime Live) ===== */
+var PRECISION_EVENTS = {
+  jnr: { id: 'ED526777085449D797BEBD76D1AD15D6', name: 'JNR Men Foil', fencer: 'raedyn', day: 'Friday' },
+  y12: { id: '1496B365F04243848A2831C99712C45E', name: 'Y12 Men Foil', fencer: 'kaylan', day: 'Saturday' },
+  y14: { id: 'D50C496296DB40DB90B7128017403E2A', name: 'Y14 Men Foil', fencer: 'both', day: 'Sunday' }
 };
 
 
@@ -2351,6 +2363,87 @@ function populateLivePools(pools) {
   // Auto-trigger pool analysis
   if(typeof analyzePool === 'function') analyzePool();
 }
+
+
+/* ================================================================
+   ONE-TAP AUTO POOL FETCH (FencingTime event IDs)
+   ================================================================ */
+
+function autoFetchPools(eventKey) {
+  var evt = PRECISION_EVENTS[eventKey];
+  if(!evt) return;
+
+  showToast('Loading ' + evt.name + ' pools...');
+
+  // Step 1: Fetch seedings page to find pool IDs
+  var seedUrl = 'https://www.fencingtimelive.com/seedings/details/' + evt.id;
+
+  fetchViaEdge(seedUrl, function(html) {
+    // Find pool scores URL in the HTML
+    var poolMatch = html.match(/pools\/scores\/[A-Fa-f0-9]{32}\/([A-Fa-f0-9]{32})/i);
+
+    if(poolMatch) {
+      var poolUrl = 'https://www.fencingtimelive.com/pools/scores/' + evt.id + '/' + poolMatch[1];
+      localStorage.setItem('fencingtime_pool_url', poolUrl);
+      fetchAndParsePoolUrl(poolUrl, evt);
+    } else {
+      // Try pools list page directly
+      autoFetchPoolsDirect(evt);
+    }
+  }, function(err) {
+    // Try direct fallback
+    autoFetchPoolsDirect(evt);
+  });
+}
+
+function autoFetchPoolsDirect(evt) {
+  var poolsListUrl = 'https://www.fencingtimelive.com/pools/list/' + evt.id;
+
+  fetchViaEdge(poolsListUrl, function(html) {
+    var poolMatch = html.match(/pools\/scores\/[A-Fa-f0-9]{32}\/([A-Fa-f0-9]{32})/i);
+    if(poolMatch) {
+      var poolUrl = 'https://www.fencingtimelive.com/pools/scores/' + evt.id + '/' + poolMatch[1];
+      localStorage.setItem('fencingtime_pool_url', poolUrl);
+      fetchAndParsePoolUrl(poolUrl, evt);
+    } else {
+      showToast('Pools not posted yet for ' + evt.name + ' — use paste method', 'warn');
+      showFTImportPrompt(null);
+    }
+  }, function(err) {
+    showToast('Could not reach FencingTime — use paste method', 'error');
+    showFTImportPrompt(null);
+  });
+}
+
+function fetchAndParsePoolUrl(poolUrl, evt) {
+  fetchViaEdge(poolUrl, function(html) {
+    var pools = parseFencingTimePools(html);
+
+    if(pools.length > 0 && countRealFencers(pools) >= 2) {
+      // Switch to correct fencer
+      if(evt.fencer !== 'both' && typeof switchFencer === 'function') {
+        switchFencer(evt.fencer);
+      }
+      // Set active event
+      ACTIVE_EVENT = evt === PRECISION_EVENTS.jnr ? 'jnr' : evt === PRECISION_EVENTS.y12 ? 'y12' : 'y14';
+
+      populateLivePools(pools);
+
+      // Navigate to pool tab
+      var navTabs = document.querySelectorAll('.nav-tab');
+      if(navTabs[2]) showTab('pool', navTabs[2]);
+
+      showToast(evt.name + ' pools loaded — ' + countRealFencers(pools) + ' fencers');
+    } else {
+      showToast('Pools not posted yet for ' + evt.name, 'warn');
+      showFTImportPrompt(poolUrl);
+    }
+  }, function(err) {
+    showToast('Fetch failed — use paste method', 'error');
+    showFTImportPrompt(poolUrl);
+  });
+}
+
 
 function fetchLiveDE() {
   showFencingTimeDEPrompt();
