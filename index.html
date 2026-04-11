@@ -1064,15 +1064,15 @@ h3 { font-size: 20px; }
 
     <div class="card">
       <div class="card-header">📅 Schedule</div>
-      <div class="schedule-row">
+      <div class="schedule-row" id="sched-apr10">
         <div class="schedule-day">Fri Apr 10</div>
         <div class="schedule-events">JNR MF — Raedyn</div>
       </div>
-      <div class="schedule-row">
+      <div class="schedule-row" id="sched-apr11">
         <div class="schedule-day">Sat Apr 11</div>
         <div class="schedule-events">CDT / Rest Day</div>
       </div>
-      <div class="schedule-row">
+      <div class="schedule-row" id="sched-apr12">
         <div class="schedule-day">Sun Apr 12</div>
         <div class="schedule-events">Y12 MF — Kaylan<br>Y14 MF — Raedyn + Kaylan</div>
       </div>
@@ -1122,6 +1122,9 @@ h3 { font-size: 20px; }
       <div class="ref-options" id="ref-options"></div>
       <button class="btn-sm" style="background:var(--gold);color:#070B15;margin-top:10px;" onclick="saveRefNote()">Save Ref Note</button>
     </div>
+    <div style="background:#0C1220;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:#4A5870;display:flex;gap:10px;flex-wrap:wrap">
+      <span>🔴 Confirmed strong</span><span>🟡 Check real form</span><span>🟢 Beatable</span><span>🔵 Clubmate</span>
+    </div>
     <div id="intel-opp-list"></div>
   </div>
 
@@ -1140,6 +1143,7 @@ h3 { font-size: 20px; }
     </div>
     <div class="card">
       <div class="card-header">Enter Pool Fencers</div>
+      <div style="font-size:12px;color:#4A5870;margin-bottom:12px">Tap 📡 above to auto-fetch your pool, or type names manually.</div>
       <div id="pool-inputs"></div>
       <div style="display:flex;gap:8px;margin-top:8px;">
         <button class="btn-outline" style="flex:1;" onclick="fetchLivePool()">🌐 Fetch Live</button>
@@ -1272,6 +1276,7 @@ h3 { font-size: 20px; }
         <p style="font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:10px;">
           This takes about 5 minutes. Answer questions about your upcoming opponents and get a personalized game plan.
         </p>
+        <div id="pregame-last-targets" style="display:none"></div>
         <div id="pregame-ft-check" style="margin-bottom:12px;"></div>
         <div style="margin-bottom:12px;">
           <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">SELECT EVENT</label>
@@ -1306,12 +1311,15 @@ h3 { font-size: 20px; }
   <div class="tab-panel" id="tab-history">
     <h2 style="color:var(--gold);margin-bottom:12px;">History</h2>
     <div class="intel-event-tabs" style="margin-bottom:14px;">
-      <button class="intel-event-tab active" onclick="showHistoryView('club',this)">By Club</button>
-      <button class="intel-event-tab" onclick="showHistoryView('individual',this)">By Fencer</button>
+      <button class="intel-event-tab active" onclick="showHistoryView('club',this)">By Event</button>
+      <button class="intel-event-tab" onclick="showHistoryView('individual',this)">Stats</button>
     </div>
     <div id="history-club"></div>
     <div id="history-individual" class="hidden"></div>
   </div>
+
+  <!-- TAB 8: LESSON -->
+  <div class="tab-panel" id="tab-lesson"></div>
 
 </div>
 
@@ -1427,6 +1435,9 @@ h3 { font-size: 20px; }
     </button>
     <button class="nav-tab" onclick="showTab('history',this);renderHistoryTab();">
       <span class="nav-icon">📈</span>History
+    </button>
+    <button class="nav-tab" onclick="showTab('lesson',this);renderLessonTab();">
+      <span class="nav-icon">📚</span>Lesson
     </button>
   </div>
 </div>
@@ -1824,6 +1835,15 @@ function showApp() {
   // Restore saved fencer
   var saved = localStorage.getItem('foiliq_fencer');
   if(saved && FENCERS[saved]) { switchFencer(saved); }
+
+  // Auto-switch active fencer by competition date
+  var todayStr = new Date().toISOString().split('T')[0];
+  if(todayStr === '2026-04-10') { ACTIVE_FENCER = 'raedyn'; localStorage.setItem('foiliq_fencer','raedyn'); }
+  if(todayStr === '2026-04-11') { ACTIVE_FENCER = 'kaylan'; localStorage.setItem('foiliq_fencer','kaylan'); }
+  if(todayStr === '2026-04-12') { ACTIVE_FENCER = 'raedyn'; localStorage.setItem('foiliq_fencer','raedyn'); }
+
+  // Highlight today in schedule
+  highlightTodaySchedule();
 
   // Purge stale localStorage keys — all competition data is in Supabase now
   localStorage.removeItem('ft_live_bouts_raedyn');
@@ -2956,7 +2976,10 @@ function endBout() {
 
   // Save to DB + localStorage fallback
   saveBoutToDB(boutRecord, function(savedRow) {
-    if(savedRow && savedRow[0]) boutRecord.id = savedRow[0].id;
+    if(savedRow && savedRow[0]) {
+      boutRecord.id = savedRow[0].id;
+      setTimeout(function(){ showPostBoutInterview(boutRecord); }, 800);
+    }
     updateHomeStatus();
   });
   saveBoutToLocal(boutRecord);
@@ -3739,76 +3762,45 @@ function closeCompDayOverlay() {
 var debriefData = {};
 
 function startDebrief() {
-  var f = FENCERS[ACTIVE_FENCER];
-  debriefData = { fencer: ACTIVE_FENCER, event: ACTIVE_EVENT };
-
-  document.getElementById('debrief-content').classList.add('hidden');
-  var flowEl = document.getElementById('debrief-flow');
-  flowEl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;">Loading bout data...</div>';
-  flowEl.classList.remove('hidden');
-
+  showTab('debrief');
+  var el = document.getElementById('tab-debrief');
+  if(!el) return;
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:#4A5870">Loading your results...</div>';
   loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
     var today = new Date().toISOString().split('T')[0];
-    var todayBouts = bouts.filter(function(b) {
-      return (b.event_date || b.date || (b.created_at || '').split('T')[0]) === today;
-    });
-    var poolBouts = todayBouts.filter(function(b) { return b.event_type === 'pool'; });
-    var deBouts = todayBouts.filter(function(b) { return b.event_type === 'de'; });
-    var poolW = 0, deW = 0, i;
-    for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolW++; }
-    for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deW++; }
-    var lastDE = deBouts.length > 0 ? deBouts[deBouts.length - 1] : null;
-
-    // Pre-fill debrief values
-    debPW = poolW; debPL = poolBouts.length - poolW;
-    debField = 17; debPlace = 2; // Default for JNR today
-
-    var html = '<div class="card">';
-    html += '<div class="card-header">END OF DAY — ' + ACTIVE_EVENT.toUpperCase() + '</div>';
-    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">' + f.name + ' • ' + new Date().toLocaleDateString() + '</div>';
-
-    // Auto-loaded summary
-    if(todayBouts.length > 0) {
-      html += '<div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid var(--gold-border);">';
-      html += '<div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;">Auto-loaded from today\'s bouts</div>';
-      html += '<div style="font-size:14px;color:var(--text);">Pool: <strong>' + poolW + 'W–' + (poolBouts.length - poolW) + 'L</strong></div>';
-      if(deBouts.length > 0) {
-        html += '<div style="font-size:14px;color:var(--text);margin-top:4px;">DE: <strong>' + deW + 'W–' + (deBouts.length - deW) + 'L</strong></div>';
-      }
-      if(lastDE) {
-        html += '<div style="font-size:14px;color:' + (lastDE.result === 'W' ? 'var(--green)' : 'var(--red)') + ';margin-top:4px;">';
-        html += 'Last bout: ' + (lastDE.result === 'W' ? 'Won' : 'Lost') + ' vs ' + (lastDE.opponent || '?') + ' ' + (lastDE.score_self || 0) + '–' + (lastDE.score_opp || 0) + '</div>';
-      }
-      html += '</div>';
-    }
-
-    // Placement
-    html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Final placement</label>';
-    html += '<div class="spinner-row" style="justify-content:center;">';
-    html += '<button class="spinner-btn" onclick="adjustDebrief(\'place\',-1)">−</button>';
-    html += '<span class="spinner-val" id="deb-place">' + debPlace + '</span>';
-    html += '<span style="color:var(--text2);margin:0 8px;">of</span>';
-    html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',-1)">−</button>';
-    html += '<span class="spinner-val" id="deb-field">' + debField + '</span>';
-    html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',1)">+</button>';
-    html += '</div></div>';
-
-    // Questions
-    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What moment are you most proud of today?</label>';
-    html += '<textarea id="deb-proud" placeholder="e.g. Came back from 0-2 to win the semifinal..."></textarea></div>';
-
-    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What\'s one thing to work on?</label>';
-    html += '<textarea id="deb-different" placeholder="e.g. First touch — I was late to initiate..."></textarea></div>';
-
-    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Overall feeling (1–5)</label>';
-    html += '<div class="star-row" id="deb-stars">';
-    for(i = 1; i <= 5; i++) { html += '<button class="star-btn" onclick="setDebriefStars(' + i + ')">★</button>'; }
-    html += '</div></div>';
-
-    html += '<button class="btn-gold" onclick="submitDebrief()">Generate Training Targets →</button>';
-    html += '</div>';
-
-    flowEl.innerHTML = html;
+    var todayBouts = bouts.filter(function(b){ return (b.event_date || (b.created_at||'').split('T')[0]) === today; });
+    if(todayBouts.length === 0) todayBouts = bouts;
+    var poolB = todayBouts.filter(function(b){ return b.event_type==='pool'; });
+    var deB   = todayBouts.filter(function(b){ return b.event_type==='de'; });
+    var poolW = poolB.filter(function(b){ return b.result==='W'; }).length;
+    var deW   = deB.filter(function(b){ return b.result==='W'; }).length;
+    var lastDE = deB.length > 0 ? deB[deB.length-1] : null;
+    var ftW   = todayBouts.filter(function(b){ return b.first_touch==='you'; }).length;
+    var ftPct = todayBouts.length > 0 ? Math.round(ftW/todayBouts.length*100) : 0;
+    var placement = '';
+    if(lastDE && lastDE.result==='L' && deB.length >= 3) placement = '🥈 Runner-Up';
+    if(lastDE && lastDE.result==='W' && deB.length >= 3) placement = '🥇 Champion!';
+    // Set global debrief vars for generateTrainingTargets
+    debPW = poolW; debPL = poolB.length - poolW;
+    var autoCard = todayBouts.length > 0 ?
+      '<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);border-radius:10px;padding:14px;margin-bottom:16px">' +
+      '<div style="font-size:10px;color:#C9A84C;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📊 Auto-loaded from today\'s bouts</div>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:#fff">' +
+      '<span>Pool: <b style="color:'+(poolW>=poolB.length*0.6?'#4CAF7C':'#E8C96A')+'">'+poolW+'W–'+(poolB.length-poolW)+'L</b></span>' +
+      '<span>DE: <b style="color:'+(deW>0?'#4CAF7C':'#E85555')+'">'+deW+'W–'+(deB.length-deW)+'L</b></span>' +
+      '<span>1st Touch: <b style="color:'+(ftPct>=70?'#4CAF7C':ftPct<40?'#E85555':'#C9A84C')+'">'+ftPct+'%</b></span>' +
+      (placement ? '<span style="color:#C9A84C;font-weight:700">'+placement+'</span>' : '') +
+      '</div></div>' : '';
+    el.innerHTML = '<div style="padding:16px">' +
+      '<div style="font-family:Bebas Neue,sans-serif;letter-spacing:2px;font-size:22px;color:#C9A84C;margin-bottom:4px">END OF DAY DEBRIEF</div>' +
+      '<div style="font-size:12px;color:#4A5870;margin-bottom:16px">'+(ACTIVE_FENCER==='raedyn'?'Raedyn':'Kaylan')+' · '+new Date().toLocaleDateString()+'</div>' +
+      autoCard +
+      '<div style="margin-bottom:14px"><div style="font-size:11px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">What are you most proud of today?</div>' +
+      '<textarea id="deb-proud" placeholder="A specific moment, a technique that worked..." style="width:100%;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;min-height:80px;box-sizing:border-box;resize:none"></textarea></div>' +
+      '<div style="margin-bottom:16px"><div style="font-size:11px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">One thing to fix before next event</div>' +
+      '<textarea id="deb-different" placeholder="Be specific — a technique, a pattern..." style="width:100%;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;min-height:80px;box-sizing:border-box;resize:none"></textarea></div>' +
+      '<button onclick="generateTrainingTargets()" style="width:100%;padding:16px;background:#C9A84C;color:#070B15;font-family:Bebas Neue,sans-serif;letter-spacing:2px;font-size:18px;border:none;border-radius:10px;cursor:pointer;touch-action:manipulation">GENERATE TRAINING TARGETS →</button>' +
+      '</div>';
   });
 }
 
@@ -4907,6 +4899,31 @@ function closeConfirm() {
    HOME TAB UX
    ================================================================ */
 
+function highlightTodaySchedule() {
+  var t = new Date().toISOString().split('T')[0];
+  var map = {'2026-04-10':'sched-apr10','2026-04-11':'sched-apr11','2026-04-12':'sched-apr12'};
+  var todayId = map[t];
+  var ids = ['sched-apr10','sched-apr11','sched-apr12'];
+  var i;
+  for(i = 0; i < ids.length; i++) {
+    var row = document.getElementById(ids[i]);
+    if(!row) continue;
+    if(ids[i] === todayId) {
+      row.style.borderLeft = '3px solid #C9A84C';
+      row.style.paddingLeft = '10px';
+      row.style.background = 'rgba(201,168,76,.05)';
+      var dayEl = row.querySelector('.schedule-day');
+      if(dayEl && dayEl.innerHTML.indexOf('TODAY') === -1) {
+        dayEl.innerHTML = dayEl.innerHTML + ' <span style="font-size:10px;color:#C9A84C;font-weight:700;letter-spacing:1px">TODAY</span>';
+      }
+    } else {
+      row.style.borderLeft = '';
+      row.style.paddingLeft = '';
+      row.style.background = '';
+    }
+  }
+}
+
 function renderHomeTilesNew() {
   var container = document.getElementById('home-fencer-tiles');
   var f = FENCERS[ACTIVE_FENCER];
@@ -4987,6 +5004,8 @@ function updateDebriefAutoFill() {
 }
 
 function updatePregameContext() {
+  // Load last training targets from DB
+  loadTrainingTargetsForPreGame();
   // FT check
   var checkEl = document.getElementById('pregame-ft-check');
   if(checkEl) {
@@ -4994,7 +5013,7 @@ function updatePregameContext() {
     if(cached && JSON.parse(cached).length > 0) {
       checkEl.innerHTML = '<div style="font-size:13px;color:var(--green);">✓ FencingTracker history loaded (' + JSON.parse(cached).length + ' bouts)</div>';
     } else {
-      checkEl.innerHTML = '<div style="font-size:13px;color:var(--red);">✕ No FencingTracker history — <a style="color:var(--gold);text-decoration:underline;cursor:pointer;" onclick="showTab(\'home\',document.querySelectorAll(\'.nav-tab\')[0])">load it from Home tab</a></div>';
+      checkEl.innerHTML = '<div style="background:rgba(201,168,76,.08);border-radius:8px;padding:10px 12px;font-size:12px;color:#8B9BB8;margin-bottom:12px">💡 Load FencingTracker history from Home for personalized pre-game advice.</div>';
     }
   }
   // Event tabs
@@ -5584,7 +5603,8 @@ function renderDBStatusBanner() {
     var ca = DB_ANALYTICS[keys[i]].computed_at;
     if(ca && (!lastUpdated || ca > lastUpdated)) lastUpdated = ca;
   }
-  if(count === 0) {
+  var hasFencers = EVENT_MAP[ACTIVE_EVENT] && EVENT_MAP[ACTIVE_EVENT].field && EVENT_MAP[ACTIVE_EVENT].field.length > 0;
+  if(count === 0 && !hasFencers) {
     banner.innerHTML = '<div style="background:rgba(232,85,85,0.1);border:1px solid rgba(232,85,85,0.3);border-radius:8px;padding:10px;font-size:12px;color:var(--red);">' +
       '⚠ No intel data loaded. Run the pipeline script to populate the database.' +
       '</div>';
@@ -5810,8 +5830,13 @@ function saveManualBout() {
   };
 
   // Save to DB + localStorage fallback
-  saveBoutToDB(bout, function() {
-    showToast('Bout saved ✓');
+  saveBoutToDB(bout, function(savedRow) {
+    if(savedRow && savedRow[0]) {
+      bout.id = savedRow[0].id;
+      setTimeout(function(){ showPostBoutInterview(bout); }, 800);
+    } else {
+      showToast('Bout saved ✓');
+    }
     updateHomeStatus();
   });
   saveBoutToLocal(bout);
@@ -6131,6 +6156,248 @@ endBout = function() {
   origEndBout();
   updateLivePoolAnalytics();
 };
+
+
+/* ================================================================
+   LESSON TAB — COACH AGENT + EDUCATOR AGENT
+   ================================================================ */
+
+function renderLessonTab() {
+  var el = document.getElementById('tab-lesson');
+  if(!el) return;
+  var name = ACTIVE_FENCER === 'raedyn' ? 'Raedyn' : 'Kaylan';
+  el.innerHTML =
+    '<div style="padding:16px">' +
+    '<div style="font-family:Bebas Neue,sans-serif;letter-spacing:2px;font-size:22px;color:#C9A84C;margin-bottom:4px">LESSON LOG</div>' +
+    '<div style="font-size:12px;color:#4A5870;margin-bottom:16px">'+name+' · '+new Date().toLocaleDateString()+'</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+    '<button id="lt-private" onclick="setLessonType(\'private\')" style="flex:1;padding:10px;background:#C9A84C;color:#070B15;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation">Private Lesson</button>' +
+    '<button id="lt-group" onclick="setLessonType(\'group\')" style="flex:1;padding:10px;background:#0C1220;color:#4A5870;border:1px solid rgba(201,168,76,.2);border-radius:8px;font-size:13px;cursor:pointer;touch-action:manipulation">Group Lesson</button>' +
+    '</div>' +
+    '<div style="margin-bottom:12px"><div style="font-size:10px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">What did the coach work on today?</div>' +
+    '<input id="lesson-topic" type="text" placeholder="e.g. Fleche attack, parry-riposte, distance management..." style="width:100%;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;box-sizing:border-box"></div>' +
+    '<div style="margin-bottom:12px"><div style="font-size:10px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Coach <span style="color:#2A3448">(optional)</span></div>' +
+    '<input id="lesson-coach" type="text" placeholder="Coach name" style="width:100%;padding:10px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.15);border-radius:8px;color:#fff;box-sizing:border-box"></div>' +
+    '<div id="group-fields" style="display:none;margin-bottom:12px"><div style="font-size:10px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Group size</div>' +
+    '<input id="lesson-groupsize" type="text" placeholder="e.g. 8 fencers" style="width:100%;padding:10px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.15);border-radius:8px;color:#fff;box-sizing:border-box"></div>' +
+    '<div style="margin-bottom:16px"><div style="font-size:10px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">'+name+': describe it in your own words</div>' +
+    '<textarea id="lesson-description" placeholder="What exactly did the coach show you? What did you practice?" style="width:100%;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;min-height:90px;box-sizing:border-box;resize:none"></textarea></div>' +
+    '<button onclick="startCoachInterview()" style="width:100%;padding:14px;background:#C9A84C;color:#070B15;font-family:Bebas Neue,sans-serif;letter-spacing:2px;font-size:16px;border:none;border-radius:10px;cursor:pointer;touch-action:manipulation">LOG LESSON + START UNDERSTANDING CHECK →</button>' +
+    '<div style="font-size:11px;color:#4A5870;text-align:center;margin-top:8px">⚠ AI only reinforces what your coach taught. For coaching questions, talk to your coach.</div>' +
+    '</div>';
+}
+
+function setLessonType(type) {
+  window.LESSON_TYPE = type;
+  var pr = document.getElementById('lt-private');
+  var gr = document.getElementById('lt-group');
+  if(pr) { pr.style.background = type==='private'?'#C9A84C':'#0C1220'; pr.style.color = type==='private'?'#070B15':'#4A5870'; pr.style.border = type==='private'?'none':'1px solid rgba(201,168,76,.2)'; }
+  if(gr) { gr.style.background = type==='group'?'#C9A84C':'#0C1220'; gr.style.color = type==='group'?'#070B15':'#4A5870'; gr.style.border = type==='group'?'none':'1px solid rgba(201,168,76,.2)'; }
+  var gf = document.getElementById('group-fields');
+  if(gf) gf.style.display = type==='group'?'block':'none';
+}
+
+var COACH_INTERVIEW_HISTORY = [];
+
+function startCoachInterview() {
+  var topicEl = document.getElementById('lesson-topic');
+  var descEl = document.getElementById('lesson-description');
+  var coachEl = document.getElementById('lesson-coach');
+  var topic = topicEl ? topicEl.value.trim() : '';
+  var description = descEl ? descEl.value.trim() : '';
+  if(!topic) { alert('Please enter the lesson topic first.'); return; }
+  window.CURRENT_LESSON = { type: window.LESSON_TYPE||'private', topic:topic, description:description, coach:(coachEl||{}).value||'', date:new Date().toISOString().split('T')[0], fencer:ACTIVE_FENCER };
+  COACH_INTERVIEW_HISTORY = [];
+  var el = document.getElementById('tab-lesson');
+  if(!el) return;
+  var fencerAge = ACTIVE_FENCER==='raedyn'?14:12;
+  var name = ACTIVE_FENCER==='raedyn'?'Raedyn':'Kaylan';
+  el.innerHTML = '<div style="padding:16px">' +
+    '<div style="font-family:Bebas Neue,sans-serif;letter-spacing:2px;font-size:18px;color:#C9A84C;margin-bottom:2px">UNDERSTANDING CHECK</div>' +
+    '<div style="font-size:12px;color:#4A5870;margin-bottom:4px">Topic: '+topic+'</div>' +
+    '<div style="background:rgba(201,168,76,.07);border-left:2px solid #C9A84C;padding:8px 12px;margin-bottom:14px;border-radius:0 8px 8px 0;font-size:12px;color:#8B9BB8">AI reinforces what your coach taught. For coaching questions, talk to your coach.</div>' +
+    '<div id="coach-chat" style="min-height:200px;margin-bottom:12px"></div>' +
+    '<div style="display:flex;gap:8px">' +
+    '<input id="coach-reply" type="text" placeholder="'+name+'\'s answer..." style="flex:1;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;box-sizing:border-box" onkeypress="if(event.key===\'Enter\') submitCoachReply()">' +
+    '<button onclick="submitCoachReply()" style="padding:12px 16px;background:#C9A84C;color:#070B15;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation">→</button>' +
+    '</div></div>';
+  callCoachAgent(null, fencerAge, topic, description);
+}
+
+function callCoachAgent(fencerMessage, fencerAge, topic, description) {
+  var chatEl = document.getElementById('coach-chat');
+  if(!chatEl) return;
+  if(fencerMessage) {
+    COACH_INTERVIEW_HISTORY.push({role:'user', content:fencerMessage});
+    chatEl.innerHTML += '<div style="text-align:right;margin-bottom:10px"><span style="background:#0C1220;border-radius:12px 12px 2px 12px;padding:8px 12px;display:inline-block;font-size:13px;color:#fff;max-width:85%">'+fencerMessage+'</span></div>';
+  }
+  chatEl.innerHTML += '<div id="coach-loading" style="display:flex;align-items:center;gap:6px;margin-bottom:10px"><span style="width:6px;height:6px;border-radius:50%;background:#C9A84C;opacity:.6"></span><span style="font-size:12px;color:#4A5870">Coach thinking...</span></div>';
+  chatEl.scrollTop = chatEl.scrollHeight;
+  var systemPrompt = 'You are a master foil fencing coach testing a '+fencerAge+'-year-old fencer\'s understanding. Topic: "'+topic+'". Fencer description: "'+description+'". Rules: 1. Ask ONE question at a time. Start with "What did your coach show you today?". 2. Go deeper if answered well. 3. Socratic if answered poorly. 4. After 4-5 exchanges: SUMMARY: [...]\nGAP: [...]\nDRILL: [...]\nLEVEL: [introduced|drilling|trained|mastered]. '+(fencerAge<=12?'Short sentences, simple language.':'Tactical depth, peer-level tone.')+' Never evaluate coach. End with: For coaching questions, talk to your coach.';
+  var messages = COACH_INTERVIEW_HISTORY.length > 0 ? COACH_INTERVIEW_HISTORY : [{role:'user',content:'Start understanding check for: '+topic}];
+  fetch(EDGE_URL, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'claude',user_email:getSessionEmail(),system:systemPrompt,messages:messages,max_tokens:300})})
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var loading = document.getElementById('coach-loading');
+    if(loading) loading.remove();
+    var text = data.content&&data.content[0]?data.content[0].text:'Unable to respond';
+    COACH_INTERVIEW_HISTORY.push({role:'assistant',content:text});
+    chatEl.innerHTML += '<div style="margin-bottom:10px"><span style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2);border-radius:12px 12px 12px 2px;padding:8px 12px;display:inline-block;font-size:13px;color:#fff;max-width:85%;line-height:1.5">'+text+'</span></div>';
+    chatEl.scrollTop = chatEl.scrollHeight;
+    if(text.indexOf('SUMMARY:')>-1||text.indexOf('GAP:')>-1) saveCoachAssessment(text);
+  });
+}
+
+function submitCoachReply() {
+  var input = document.getElementById('coach-reply');
+  if(!input||!input.value.trim()) return;
+  var reply = input.value.trim(); input.value='';
+  var lesson = window.CURRENT_LESSON||{};
+  callCoachAgent(reply, ACTIVE_FENCER==='raedyn'?14:12, lesson.topic||'', lesson.description||'');
+}
+
+function saveCoachAssessment(summaryText) {
+  var lesson = window.CURRENT_LESSON||{};
+  var gap='',drill='',level='introduced';
+  var gm=summaryText.match(/GAP:\s*(.+)/); if(gm) gap=gm[1].trim();
+  var dm=summaryText.match(/DRILL:\s*(.+)/); if(dm) drill=dm[1].trim();
+  var lm=summaryText.match(/LEVEL:\s*(introduced|drilling|trained|mastered)/i); if(lm) level=lm[1].toLowerCase();
+  var row={fencer:ACTIVE_FENCER,lesson_date:lesson.date||new Date().toISOString().split('T')[0],lesson_type:lesson.type||'private',topic:lesson.topic||'',gap:gap,drill:drill,skill_level:level,conversation:JSON.stringify(COACH_INTERVIEW_HISTORY)};
+  dbREST('POST','/lesson_assessments',row,function(err,data){
+    if(!err&&data&&data[0]){
+      if(typeof showToast==='function') showToast('Lesson saved. Building drill...','success');
+      setTimeout(function(){callEducatorAgent(lesson.topic,gap,level,data[0].id);},1500);
+    }
+  });
+}
+
+function callEducatorAgent(topic, gap, currentLevel, lessonAssessmentId) {
+  var chatEl = document.getElementById('coach-chat');
+  if(chatEl) chatEl.innerHTML += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:#4A5870">✦ Building your drill protocol...</div>';
+  var fencerAge = ACTIVE_FENCER==='raedyn'?14:12;
+  var system = 'You are a sports educator designing a drill for a '+fencerAge+'-year-old foil fencer. Gap: "'+gap+'". Topic: "'+topic+'". Level: '+currentLevel+'. Design ONE parent-runnable drill. Return JSON only: {"drill_name":"...","partner_instructions":"...","fencer_instructions":"...","reps":"...","duration_minutes":N,"success_criteria":"...","advancement_criteria":"..."}';
+  fetch(EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'claude',user_email:getSessionEmail(),system:system,messages:[{role:'user',content:'Design drill for gap: '+gap}],max_tokens:400})})
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var text=data.content&&data.content[0]?data.content[0].text:'{}';
+    var protocol={};
+    try{var clean=text.replace(/```json|```/g,'').trim();protocol=JSON.parse(clean);}catch(e){}
+    var row={fencer:ACTIVE_FENCER,skill:topic,current_level:currentLevel,drill_name:protocol.drill_name||'',partner_instructions:protocol.partner_instructions||'',fencer_instructions:protocol.fencer_instructions||'',reps:protocol.reps||'',duration_minutes:protocol.duration_minutes||15,success_criteria:protocol.success_criteria||'',advancement_criteria:protocol.advancement_criteria||'',lesson_assessment_id:lessonAssessmentId};
+    dbREST('POST','/drill_protocols',row,function(err,drillData){
+      var chatEl2=document.getElementById('coach-chat');
+      if(chatEl2){
+        chatEl2.innerHTML+='<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:12px;margin-top:10px"><div style="font-size:10px;color:#C9A84C;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Your drill protocol</div><div style="font-size:14px;color:#fff;font-weight:600;margin-bottom:6px">'+(protocol.drill_name||'Drill')+'</div><div style="font-size:12px;color:#8B9BB8;margin-bottom:4px"><b style="color:#C9A84C">You:</b> '+(protocol.fencer_instructions||'')+'</div><div style="font-size:12px;color:#8B9BB8;margin-bottom:6px"><b style="color:#C9A84C">Training partner:</b> '+(protocol.partner_instructions||'')+'</div><div style="font-size:12px;color:#4A5870">'+(protocol.reps||'')+' · '+(protocol.duration_minutes||15)+' min</div></div>';
+        chatEl2.scrollTop=chatEl2.scrollHeight;
+      }
+      if(typeof showToast==='function') showToast('Drill protocol saved ✓','success');
+    });
+  });
+}
+
+
+/* ================================================================
+   POST-BOUT INTERVIEW AGENT
+   ================================================================ */
+
+var BOUT_INTERVIEW_HISTORY = [];
+var CURRENT_BOUT_FOR_INTERVIEW = null;
+
+function showPostBoutInterview(bout) {
+  CURRENT_BOUT_FOR_INTERVIEW = bout;
+  BOUT_INTERVIEW_HISTORY = [];
+  var el = document.getElementById('tab-timer');
+  if(!el) return;
+  var result = bout.result==='W'?'W':'L';
+  var score = (bout.score_self||0)+'–'+(bout.score_opp||0);
+  var opp = bout.opponent||'?';
+  var rc = result==='W'?'#4CAF7C':'#E85555';
+  var name = ACTIVE_FENCER==='raedyn'?'Raedyn':'Kaylan';
+  el.innerHTML = '<div style="padding:16px">' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">' +
+    '<span style="font-family:JetBrains Mono,Courier New,monospace;font-size:28px;color:'+rc+';font-weight:700">'+result+'</span>' +
+    '<div><div style="font-size:16px;color:#fff">vs '+opp+'</div><div style="font-family:JetBrains Mono,Courier New,monospace;font-size:14px;color:'+rc+'">'+score+'</div></div>' +
+    '<button onclick="skipBoutInterview()" style="margin-left:auto;padding:6px 12px;background:none;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#4A5870;font-size:11px;cursor:pointer;touch-action:manipulation">Skip</button>' +
+    '</div>' +
+    '<div style="font-family:Bebas Neue,sans-serif;letter-spacing:1.5px;font-size:14px;color:#C9A84C;margin-bottom:10px">QUICK BOUT REVIEW</div>' +
+    '<div id="bout-interview-chat" style="min-height:150px;margin-bottom:12px"></div>' +
+    '<div style="display:flex;gap:8px">' +
+    '<input id="bout-interview-reply" type="text" placeholder="'+name+'\'s answer..." style="flex:1;padding:12px;font-size:16px;background:#0C1220;border:1px solid rgba(201,168,76,.2);border-radius:8px;color:#fff;box-sizing:border-box" onkeypress="if(event.key===\'Enter\') submitBoutInterviewReply()">' +
+    '<button onclick="submitBoutInterviewReply()" style="padding:12px 16px;background:#C9A84C;color:#070B15;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation">→</button>' +
+    '</div></div>';
+  callBoutInterviewAgent(null, bout);
+}
+
+function callBoutInterviewAgent(fencerMessage, bout) {
+  var chatEl = document.getElementById('bout-interview-chat');
+  if(!chatEl) return;
+  if(fencerMessage) {
+    BOUT_INTERVIEW_HISTORY.push({role:'user',content:fencerMessage});
+    chatEl.innerHTML += '<div style="text-align:right;margin-bottom:8px"><span style="background:#0C1220;border-radius:12px 12px 2px 12px;padding:8px 12px;display:inline-block;font-size:13px;color:#fff;max-width:85%">'+fencerMessage+'</span></div>';
+  }
+  chatEl.innerHTML += '<div id="bi-loading" style="font-size:12px;color:#4A5870;margin-bottom:8px">...</div>';
+  chatEl.scrollTop = chatEl.scrollHeight;
+  var fencerAge = ACTIVE_FENCER==='raedyn'?14:12;
+  var result=bout.result||'?',score=(bout.score_self||0)+'-'+(bout.score_opp||0),opp=bout.opponent||'?';
+  var ft=bout.first_touch||'unknown',ot=bout.overtime?', went to overtime':'';
+  var system='You are FoilIQ post-bout interview agent for a '+fencerAge+'-year-old foil fencer. Bout: '+result+' vs '+opp+' '+score+', first touch: '+ft+ot+'. Ask ONE question at a time. Max 5-6 questions. Sequence: 1."Going into that bout, what was your plan?" 2."What did you try in the first 30 seconds?" 3.'+(result==='W'?'"What was the moment you knew you had it?"':'"What was the moment things shifted?"')+' 4."How was your opponent fencing?" 5."What action scored the most?" After last question output: INTERVIEW_COMPLETE\nplan: [...]\nfirst_action: [...]\nturning_point: [...]\nopponent_style: [...]\nkey_action: [...]\nemotional_state: [one word]. '+(fencerAge<=12?'3-4 questions max, simple language.':'5-6 questions, tactical depth.');
+  var messages=BOUT_INTERVIEW_HISTORY.length>0?BOUT_INTERVIEW_HISTORY:[{role:'user',content:'Start post-bout interview. Bout: '+result+' vs '+opp+' '+score}];
+  fetch(EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'claude',user_email:getSessionEmail(),system:system,messages:messages,max_tokens:200})})
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var loading=document.getElementById('bi-loading');
+    if(loading) loading.remove();
+    var text=data.content&&data.content[0]?data.content[0].text:'';
+    BOUT_INTERVIEW_HISTORY.push({role:'assistant',content:text});
+    if(text.indexOf('INTERVIEW_COMPLETE')>-1){
+      saveBoutInterview(text,bout);
+    } else {
+      chatEl.innerHTML+='<div style="margin-bottom:8px"><span style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2);border-radius:12px 12px 12px 2px;padding:8px 12px;display:inline-block;font-size:13px;color:#fff;max-width:85%;line-height:1.5">'+text+'</span></div>';
+      chatEl.scrollTop=chatEl.scrollHeight;
+    }
+  });
+}
+
+function submitBoutInterviewReply() {
+  var input=document.getElementById('bout-interview-reply');
+  if(!input||!input.value.trim()) return;
+  var reply=input.value.trim(); input.value='';
+  callBoutInterviewAgent(reply, CURRENT_BOUT_FOR_INTERVIEW||{});
+}
+
+function saveBoutInterview(completionText, bout) {
+  function exField(text,field){ var m=text.match(new RegExp(field+':\\s*(.+)')); return m?m[1].trim():''; }
+  var row={bout_id:bout.id||null,fencer:ACTIVE_FENCER,pre_bout_plan:exField(completionText,'plan'),first_action_intent:exField(completionText,'first_action'),turning_point:exField(completionText,'turning_point'),opponent_style:exField(completionText,'opponent_style'),opponent_key_action:exField(completionText,'key_action'),emotional_state:exField(completionText,'emotional_state'),raw_notes:JSON.stringify(BOUT_INTERVIEW_HISTORY),tournament:TOURNAMENT};
+  dbREST('POST','/bout_interviews',row,function(err,data){
+    if(bout.id) dbREST('PATCH','/competition_bouts?id=eq.'+bout.id,{interview_complete:true},function(){});
+    if(typeof showToast==='function') showToast('Bout logged ✓','success');
+    setTimeout(function(){ if(window.showTimerView) showTimerView('setup'); },1500);
+  });
+}
+
+function skipBoutInterview() {
+  if(typeof showToast==='function') showToast('Bout saved — interview skipped','success');
+  if(window.showTimerView) showTimerView('setup');
+}
+
+
+/* ================================================================
+   TRAINING TARGETS → PRE-GAME CONNECTION
+   ================================================================ */
+
+function loadTrainingTargetsForPreGame() {
+  dbREST('GET','/competition_sessions?fencer=eq.'+ACTIVE_FENCER+'&session_type=eq.training_targets&tournament=eq.'+TOURNAMENT+'&order=created_at.desc&limit=1',null,function(err,data){
+    var rows=Array.isArray(data)?data:[];
+    if(!rows.length) return;
+    var targets=[];
+    try{targets=JSON.parse(rows[0].data||'[]');}catch(e){}
+    var high=targets.filter(function(t){return t.priority==='high';})[0];
+    if(!high) return;
+    var el=document.getElementById('pregame-last-targets');
+    if(!el) return;
+    el.innerHTML='<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:8px;padding:10px 12px;margin-bottom:12px"><div style="font-size:10px;color:#C9A84C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">From last competition</div><div style="font-size:13px;color:#fff">Focus: '+high.title+'</div><div style="font-size:11px;color:#4A5870;margin-top:2px">'+high.drill+'</div></div>';
+    el.style.display='block';
+  });
+}
 
 
 /* ================================================================
