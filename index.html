@@ -1474,7 +1474,8 @@ var SUPABASE_ANON_KEY = 'sb_publishable_GbLL0419rGP6EYSmq42Bsg_r5EkOYtg';
 var sb = null;
 try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e) { sb = null; }
 
-/* ===== COMPETITION BOUTS DB ===== */
+/* ===== SUPABASE DB LAYER — raw REST, no SDK dependency ===== */
+var SUPA_REST = 'https://kyfkiigbiwhczrtnlivc.supabase.co/rest/v1';
 var TOURNAMENT = 'precision_2026';
 
 function showSyncStatus(status) {
@@ -1484,14 +1485,35 @@ function showSyncStatus(status) {
   el.style.background = colors[status] || colors.idle;
 }
 
-function saveBoutToDB(bout, onDone) {
-  if(!sb) { if(onDone) onDone(null); return; }
+function dbREST(method, path, body, cb) {
+  var xhr = new XMLHttpRequest();
+  xhr.open(method, SUPA_REST + path, true);
+  xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_ANON_KEY);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.setRequestHeader('Prefer', 'return=representation');
+  xhr.onload = function() {
+    var data = null;
+    try { data = JSON.parse(xhr.responseText); } catch(e) { data = []; }
+    cb(xhr.status >= 400 ? xhr.status : null, data);
+  };
+  xhr.onerror = function() { cb('network', null); };
+  xhr.send(body ? JSON.stringify(body) : null);
+}
+
+function loadBoutsFromDB(fencer, cb) {
+  dbREST('GET', '/competition_bouts?fencer=eq.' + fencer + '&tournament=eq.' + TOURNAMENT + '&order=created_at.asc', null, function(err, data) {
+    cb(Array.isArray(data) ? data : []);
+  });
+}
+
+function saveBoutToDB(bout, cb) {
   showSyncStatus('saving');
   var row = {
     fencer: bout.fencer || ACTIVE_FENCER,
-    event_name: bout.event_name || 'Precision Invitational',
+    event_name: bout.event_name || '',
     event_date: bout.event_date || new Date().toISOString().split('T')[0],
-    bout_num: bout.bout_num || 1,
+    bout_num: bout.bout_num || null,
     event_type: bout.event_type || 'pool',
     opponent: bout.opponent || '',
     score_self: bout.score_self || 0,
@@ -1507,16 +1529,17 @@ function saveBoutToDB(bout, onDone) {
     recorded_by: getSessionEmail(),
     tournament: TOURNAMENT
   };
-  sb.from('competition_bouts').insert(row).select().then(function(res) {
-    if(res.error) {
-      console.warn('saveBout DB error:', res.error.message);
-      showSyncStatus('error');
-      // Fallback: save to localStorage
-      saveBoutToLocal(bout);
-    } else {
-      showSyncStatus('saved');
-    }
-    if(onDone) onDone(res.data);
+  dbREST('POST', '/competition_bouts', row, function(err, data) {
+    showSyncStatus(err ? 'error' : 'saved');
+    if(cb) cb(data);
+  });
+}
+
+function deleteBoutFromDB(id, cb) {
+  showSyncStatus('saving');
+  dbREST('DELETE', '/competition_bouts?id=eq.' + id, null, function(err) {
+    showSyncStatus(err ? 'error' : 'saved');
+    if(cb) cb();
   });
 }
 
@@ -1526,38 +1549,6 @@ function saveBoutToLocal(bout) {
   bout.id = bout.id || Date.now();
   arr.push(bout);
   localStorage.setItem(key, JSON.stringify(arr));
-}
-
-function loadBoutsFromDB(fencer, onDone) {
-  if(!sb) { onDone(loadBoutsFromLocal(fencer)); return; }
-  sb.from('competition_bouts')
-    .select('*')
-    .eq('fencer', fencer)
-    .eq('tournament', TOURNAMENT)
-    .order('event_date', {ascending: true})
-    .order('bout_num', {ascending: true})
-    .then(function(res) {
-      if(res.error || !res.data || res.data.length === 0) {
-        // Fallback to localStorage
-        onDone(loadBoutsFromLocal(fencer));
-        return;
-      }
-      onDone(res.data);
-    });
-}
-
-function loadBoutsFromLocal(fencer) {
-  try { return JSON.parse(localStorage.getItem('ft_live_bouts_' + fencer) || '[]'); }
-  catch(e) { return []; }
-}
-
-function deleteBoutFromDB(boutId, onDone) {
-  if(!sb) { if(onDone) onDone(); return; }
-  showSyncStatus('saving');
-  sb.from('competition_bouts').delete().eq('id', boutId).then(function(res) {
-    showSyncStatus(res.error ? 'error' : 'saved');
-    if(onDone) onDone();
-  });
 }
 
 function seedTodaysResults() {
@@ -4133,13 +4124,71 @@ function isNameInField(name) {
   return false;
 }
 
-function showHistoryView(view, btn) {
-  document.getElementById('history-club').classList.toggle('hidden', view !== 'club');
-  document.getElementById('history-individual').classList.toggle('hidden', view !== 'individual');
-  var tabs = btn.parentElement.querySelectorAll('.intel-event-tab');
-  var i;
-  for(i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
-  btn.classList.add('active');
+function showHistoryView(mode) {
+  var el = document.getElementById('tab-history');
+  if(!el) return;
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:#4A5870">Loading from Supabase...</div>';
+  loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
+    var nm = ACTIVE_FENCER === 'raedyn' ? 'RAEDYN' : 'KAYLAN';
+    if(!bouts.length) {
+      el.innerHTML = '<div style="padding:32px;text-align:center">' +
+        '<div style="font-size:48px">📈</div>' +
+        '<div style="font-family:Bebas Neue;font-size:20px;color:#8B9BB8;margin:12px 0">NO HISTORY YET</div>' +
+        '<div style="color:#4A5870;font-size:13px">Record bouts in the Timer tab.<br>Both phones share the same data.</div></div>';
+      return;
+    }
+    var wins = bouts.filter(function(b) { return b.result === 'W'; }).length;
+    var pool = bouts.filter(function(b) { return b.event_type === 'pool'; });
+    var de = bouts.filter(function(b) { return b.event_type === 'de'; });
+    var pw = pool.filter(function(b) { return b.result === 'W'; }).length;
+    var dw = de.filter(function(b) { return b.result === 'W'; }).length;
+    var ftw = bouts.filter(function(b) { return b.first_touch === 'you'; }).length;
+    var ftp = bouts.length > 0 ? Math.round(ftw / bouts.length * 100) : 0;
+    var ot = bouts.filter(function(b) { return b.overtime; });
+    var otw = ot.filter(function(b) { return b.result === 'W'; }).length;
+    function sb(lbl, val, c) {
+      return '<div style="background:#0C1220;padding:14px;border-radius:10px;text-align:center">' +
+        '<div style="font-family:JetBrains Mono,monospace;font-size:26px;color:' + c + '">' + val + '</div>' +
+        '<div style="font-size:10px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-top:2px">' + lbl + '</div></div>';
+    }
+    function br(b) {
+      var rc = b.result === 'W' ? '#4CAF7C' : '#E85555';
+      var ots = b.overtime ? '★' : '';
+      var ft = b.first_touch === 'you' ? '<span style="color:#4CAF7C;font-size:9px"> ●</span>' :
+               b.first_touch === 'opp' ? '<span style="color:#E85555;font-size:9px"> ●</span>' : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0C1220;' +
+        'border-radius:8px;margin-bottom:4px;border-left:3px solid ' + rc + '">' +
+        '<span style="color:' + rc + ';font-weight:700;font-family:JetBrains Mono,monospace;min-width:16px">' + b.result + '</span>' +
+        '<span style="color:#fff;flex:1">' + (b.opponent || '?') + '</span>' + ft +
+        '<span style="color:' + rc + ';font-family:JetBrains Mono,monospace">' + (b.score_self || 0) + '–' + (b.score_opp || 0) + ots + '</span></div>';
+    }
+    var h = '<div style="padding:16px">' +
+      '<div style="font-family:Bebas Neue;letter-spacing:2px;font-size:20px;color:#C9A84C;margin-bottom:4px">' +
+        nm + ' — PRECISION INVITATIONAL 2026</div>' +
+      '<div style="font-size:12px;color:#4A5870;margin-bottom:16px">' + bouts.length + ' bouts · live from Supabase</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">' +
+        sb('Overall', wins + '–' + (bouts.length - wins), wins / bouts.length >= 0.6 ? '#4CAF7C' : '#fff') +
+        sb('1st Touch', ftp + '%', ftp >= 70 ? '#4CAF7C' : ftp < 40 ? '#E85555' : '#C9A84C') +
+        sb('Pool', pw + '–' + (pool.length - pw), '#fff') +
+        sb('DE', dw + '–' + (de.length - dw), '#fff') +
+      '</div>' +
+      (ot.length ? '<div style="background:#0C1220;padding:10px 14px;border-radius:8px;margin-bottom:14px;' +
+        'display:flex;justify-content:space-between">' +
+        '<span style="color:#8B9BB8;font-size:13px">Overtime bouts</span>' +
+        '<span style="color:#C9A84C;font-family:JetBrains Mono,monospace">' + otw + '/' + ot.length + '</span></div>' : '') +
+      '<div style="font-family:Bebas Neue;letter-spacing:1.5px;color:#C9A84C;font-size:14px;margin-bottom:8px">ALL BOUTS</div>';
+    var i;
+    if(pool.length) {
+      h += '<div style="font-size:11px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Pools</div>';
+      for(i = 0; i < pool.length; i++) { h += br(pool[i]); }
+    }
+    if(de.length) {
+      h += '<div style="font-size:11px;color:#4A5870;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px">Direct Elimination</div>';
+      for(i = 0; i < de.length; i++) { h += br(de[i]); }
+    }
+    h += '</div>';
+    el.innerHTML = h;
+  });
 }
 
 
@@ -4655,81 +4704,68 @@ function updateTimerFencerIndicator() {
 }
 
 function renderBoutLog() {
-  var f = FENCERS[ACTIVE_FENCER];
-  var container = document.getElementById('bout-log-content');
-  if(!container) return;
-  container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;">Loading bouts...</div>';
-
+  var el = document.getElementById('bout-log-content');
+  if(!el) el = document.getElementById('timer-log-view');
+  if(!el) return;
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:#4A5870">Loading from Supabase...</div>';
   loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
-    if(!bouts || bouts.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:32px;">' +
-        '<div style="font-size:40px;margin-bottom:12px;">📋</div>' +
-        '<div style="color:var(--text2);font-size:16px;">No bouts recorded yet for ' + f.first + '</div>' +
-        '<div style="color:var(--text3);font-size:13px;margin-top:8px;">Use the Timer to record bouts at strip-side</div></div>';
+    if(!bouts.length) {
+      el.innerHTML = '<div style="padding:32px;text-align:center">' +
+        '<div style="font-size:36px;margin-bottom:10px">📋</div>' +
+        '<div style="color:#8B9BB8">No bouts recorded</div>' +
+        '<div style="color:#4A5870;font-size:12px;margin-top:6px">Use the Timer to record bouts</div></div>';
       return;
     }
-
-    var today = new Date().toISOString().split('T')[0];
     var grouped = {};
     var i;
     for(i = 0; i < bouts.length; i++) {
-      var d = bouts[i].event_date || bouts[i].date || (bouts[i].created_at || '').split('T')[0] || today;
+      var d = bouts[i].event_date || '2026-04-10';
       if(!grouped[d]) grouped[d] = [];
       grouped[d].push(bouts[i]);
     }
-
-    var html = '<h3 style="color:var(--gold);margin-bottom:10px;">Bout Log — ' + f.first.toUpperCase() + '</h3>';
-    var dateKeys = Object.keys(grouped).sort().reverse();
+    var today = new Date().toISOString().split('T')[0];
+    var h = '';
+    var dates = Object.keys(grouped).sort().reverse();
     var di;
-    for(di = 0; di < dateKeys.length; di++) {
-      var dateLabel = dateKeys[di] === today ? '📅 TODAY' : dateKeys[di];
-      html += '<div class="bout-log-date-header">' + dateLabel + '</div>';
-      var dayBouts = grouped[dateKeys[di]];
+    for(di = 0; di < dates.length; di++) {
+      var date = dates[di];
+      h += '<div style="font-family:Bebas Neue;letter-spacing:1.5px;color:#C9A84C;font-size:12px;padding:10px 0 4px">' +
+           (date === today ? '📅 TODAY' : date) + '</div>';
+      var dBouts = grouped[date];
       var bi;
-      for(bi = 0; bi < dayBouts.length; bi++) {
-        var bout = dayBouts[bi];
-        var boutId = bout.id || bi;
-        var rColor = bout.result === 'W' ? 'var(--green)' : 'var(--red)';
-        var typeLabel = bout.event_type === 'de' ? 'DE' : 'Pool ' + (bout.bout_num || '');
-        var otStar = bout.overtime ? '★' : '';
-        var ft = bout.first_touch || bout.first_touch_scorer || '';
-        var ftDot = ft === 'you' ? '<span style="color:var(--green);font-size:10px;margin-left:4px;">●</span>' :
-                    ft === 'opp' ? '<span style="color:var(--red);font-size:10px;margin-left:4px;">●</span>' : '';
-
-        html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border-radius:8px;margin-bottom:6px;border-left:3px solid ' + rColor + ';">';
-        html += '<span style="color:' + rColor + ';font-weight:700;font-family:\'JetBrains Mono\',monospace;min-width:14px;">' + bout.result + '</span>';
-        html += '<span style="color:var(--text);flex:1;font-size:14px;">' + (bout.opponent || '?') + '</span>';
-        html += ftDot;
-        html += '<span style="color:' + rColor + ';font-family:\'JetBrains Mono\',monospace;font-size:13px;">' + (bout.score_self || 0) + '–' + (bout.score_opp || 0) + otStar + '</span>';
-        html += '<span style="color:var(--text3);font-size:11px;min-width:36px;">' + typeLabel + '</span>';
-        html += '<button onclick="confirmDeleteBout(\'' + boutId + '\')" style="padding:4px 8px;background:none;border:1px solid rgba(232,85,85,.3);border-radius:6px;color:var(--red);font-size:11px;cursor:pointer;min-height:28px;">✕</button>';
-        html += '</div>';
+      for(bi = 0; bi < dBouts.length; bi++) {
+        var b = dBouts[bi];
+        var rc = b.result === 'W' ? '#4CAF7C' : '#E85555';
+        var ss = b.score_self || 0;
+        var so = b.score_opp || 0;
+        var ot = b.overtime ? '★' : '';
+        var tl = b.event_type === 'de' ? 'DE' : 'P' + (b.bout_num || '');
+        var ft = b.first_touch === 'you' ? '<span style="color:#4CAF7C;font-size:9px"> ●</span>' :
+                 b.first_touch === 'opp' ? '<span style="color:#E85555;font-size:9px"> ●</span>' : '';
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#0C1220;' +
+             'border-radius:8px;margin-bottom:5px;border-left:3px solid ' + rc + '">' +
+             '<span style="color:' + rc + ';font-weight:700;font-family:JetBrains Mono,monospace;min-width:14px">' + b.result + '</span>' +
+             '<span style="color:#fff;flex:1">' + (b.opponent || '?') + '</span>' + ft +
+             '<span style="color:' + rc + ';font-family:JetBrains Mono,monospace;font-size:13px">' + ss + '–' + so + ot + '</span>' +
+             '<span style="color:#4A5870;font-size:11px;min-width:24px">' + tl + '</span>' +
+             '<button onclick="deleteBoutFromDB(\'' + b.id + '\',function(){renderBoutLog();updateHomeStatus();})" ' +
+             'style="padding:5px 8px;background:none;border:1px solid rgba(232,85,85,.3);border-radius:6px;' +
+             'color:#E85555;font-size:10px;cursor:pointer;touch-action:manipulation">✕</button></div>';
       }
     }
-
-    // Summary bar
-    var totalW = 0, ftWins = 0;
+    var wins = 0;
+    var ftw = 0;
     for(i = 0; i < bouts.length; i++) {
-      if(bouts[i].result === 'W') totalW++;
-      var ftVal = bouts[i].first_touch || bouts[i].first_touch_scorer || '';
-      if(ftVal === 'you') ftWins++;
+      if(bouts[i].result === 'W') wins++;
+      if(bouts[i].first_touch === 'you') ftw++;
     }
-    var ftPct = bouts.length > 0 ? Math.round(ftWins / bouts.length * 100) : 0;
-
-    html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(201,168,76,0.08);">';
-    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
-    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
-    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;">' + totalW + '–' + (bouts.length - totalW) + '</div>';
-    html += '<div style="font-size:10px;color:var(--text3);">ALL TIME</div></div>';
-    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
-    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;color:var(--gold);">' + ftPct + '%</div>';
-    html += '<div style="font-size:10px;color:var(--text3);">1ST TOUCH</div></div>';
-    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
-    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;color:var(--text2);">' + bouts.length + '</div>';
-    html += '<div style="font-size:10px;color:var(--text3);">BOUTS</div></div>';
-    html += '</div></div>';
-
-    container.innerHTML = html;
+    var ftp = bouts.length > 0 ? Math.round(ftw / bouts.length * 100) : 0;
+    h += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);' +
+         'display:flex;justify-content:space-between;font-size:12px;color:#4A5870">' +
+         '<span>' + wins + 'W–' + (bouts.length - wins) + 'L</span>' +
+         '<span>1st touch: ' + ftp + '%</span>' +
+         '<span>' + bouts.length + ' bouts</span></div>';
+    el.innerHTML = h;
   });
 }
 
@@ -4845,19 +4881,15 @@ function confirmDeleteBout(idx) {
   document.getElementById('confirm-dialog').classList.add('open');
 }
 
-function doDeleteBout() {
-  deleteBoutFromDB(pendingDeleteIdx, function() {
+function doDeleteBout(boutId) {
+  var id = boutId || pendingDeleteIdx;
+  deleteBoutFromDB(id, function() {
     closeConfirm();
     closeBoutDetail();
     renderBoutLog();
     updateHomeStatus();
-    showToast('Deleted', 'error');
+    if(typeof showToast === 'function') showToast('Deleted', 'error');
   });
-  // Also remove from localStorage fallback
-  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
-  var bouts = JSON.parse(localStorage.getItem(key) || '[]');
-  var filtered = bouts.filter(function(b) { return (b.id + '') !== (pendingDeleteIdx + ''); });
-  localStorage.setItem(key, JSON.stringify(filtered));
 }
 
 function closeConfirm() {
@@ -4889,89 +4921,40 @@ function renderHomeTilesNew() {
 
 function updateHomeStatus() {
   var el = document.getElementById('home-status-body');
+  if(!el) el = document.getElementById('home-today-status');
   if(!el) return;
-  el.innerHTML = '<div style="color:var(--text3);font-size:12px;">Loading...</div>';
-
+  el.innerHTML = '<div style="color:#4A5870;font-size:12px;padding:8px">Loading...</div>';
   loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
-    if(!bouts || bouts.length === 0) {
-      el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No bouts recorded yet. Use the Timer to start recording.</div>';
-      renderFTHistoryStatus();
+    if(!bouts.length) {
+      el.innerHTML = '<div style="color:#4A5870;font-size:13px;padding:8px">No bouts recorded yet</div>';
       return;
     }
-
-    var today = new Date().toISOString().split('T')[0];
-    var todayBouts = bouts.filter(function(b) {
-      var d = b.event_date || b.date || (b.created_at || '').split('T')[0];
-      return d === today;
-    });
-    var wins = 0, losses = 0, ftWins = 0;
-    var poolBouts = [], deBouts = [];
-    var i;
-    for(i = 0; i < todayBouts.length; i++) {
-      if(todayBouts[i].result === 'W') wins++; else losses++;
-      if((todayBouts[i].first_touch || todayBouts[i].first_touch_scorer) === 'you') ftWins++;
-      if(todayBouts[i].event_type === 'pool') poolBouts.push(todayBouts[i]);
-      else deBouts.push(todayBouts[i]);
-    }
-    var ftPct = todayBouts.length > 0 ? Math.round(ftWins / todayBouts.length * 100) : null;
-    var poolW = 0;
-    for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolW++; }
-    var deW = 0;
-    for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deW++; }
-
-    if(todayBouts.length === 0) {
-      el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No bouts today. All-time: ' + bouts.length + ' bouts.</div>';
-      renderFTHistoryStatus();
-      return;
-    }
-
-    // Placement detection
-    var lastDE = deBouts.length > 0 ? deBouts[deBouts.length - 1] : null;
-    var placementHtml = '';
-    if(lastDE && lastDE.result === 'L' && deBouts.length >= 3) {
-      placementHtml = '<div style="color:var(--gold);font-size:13px;font-weight:700;margin-top:4px;">🥈 Runner-up!</div>';
-    } else if(lastDE && lastDE.result === 'W' && deBouts.length >= 3) {
-      placementHtml = '<div style="color:var(--gold);font-size:13px;font-weight:700;margin-top:4px;">🥇 Champion!</div>';
-    } else if(deBouts.length > 0) {
-      placementHtml = '<div style="color:var(--text2);font-size:12px;margin-top:4px;">DE: ' + deW + 'W–' + (deBouts.length - deW) + 'L</div>';
-    }
-
+    var wins = bouts.filter(function(b) { return b.result === 'W'; }).length;
+    var pool = bouts.filter(function(b) { return b.event_type === 'pool'; });
+    var de = bouts.filter(function(b) { return b.event_type === 'de'; });
+    var pw = pool.filter(function(b) { return b.result === 'W'; }).length;
+    var dw = de.filter(function(b) { return b.result === 'W'; }).length;
+    var ftw = bouts.filter(function(b) { return b.first_touch === 'you'; }).length;
+    var ftp = Math.round(ftw / bouts.length * 100);
+    var lastDE = de.length > 0 ? de[de.length - 1] : null;
+    var badge = '';
+    if(lastDE && lastDE.result === 'L' && de.length >= 3)
+      badge = '<div style="font-family:Bebas Neue;font-size:18px;color:#C9A84C;margin-top:8px;letter-spacing:1px">🥈 RUNNER-UP</div>';
+    if(lastDE && lastDE.result === 'W' && de.length >= 3)
+      badge = '<div style="font-family:Bebas Neue;font-size:18px;color:#4CAF7C;margin-top:8px;letter-spacing:1px">🥇 CHAMPION</div>';
     el.innerHTML =
-      '<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">' +
-      '<div style="text-align:center;">' +
-      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:26px;font-weight:700;">' +
-        '<span style="color:var(--green);">' + wins + '</span><span style="color:var(--text3);font-size:18px;">–</span><span style="color:var(--red);">' + losses + '</span></div>' +
-      '<div style="font-size:10px;color:var(--text3);">TODAY</div></div>' +
-      (ftPct !== null ?
-      '<div style="text-align:center;">' +
-      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:26px;font-weight:700;color:' +
-        (ftPct >= 70 ? 'var(--green)' : ftPct < 40 ? 'var(--red)' : 'var(--gold)') + ';">' + ftPct + '%</div>' +
-      '<div style="font-size:10px;color:var(--text3);">1ST TOUCH</div></div>' : '') +
-      '<div style="text-align:center;">' +
-      '<div style="font-size:12px;color:var(--text2);">Pool: ' + poolW + 'W–' + (poolBouts.length - poolW) + 'L</div>' +
-      placementHtml +
-      '</div></div>';
-
-    renderFTHistoryStatus();
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">' +
+      '<div style="text-align:center;background:#0C1220;padding:10px;border-radius:8px">' +
+        '<div style="font-family:JetBrains Mono,monospace;font-size:22px;color:#fff">' + wins + '–' + (bouts.length - wins) + '</div>' +
+        '<div style="font-size:10px;color:#4A5870">OVERALL</div></div>' +
+      '<div style="text-align:center;background:#0C1220;padding:10px;border-radius:8px">' +
+        '<div style="font-family:JetBrains Mono,monospace;font-size:22px;color:' + (ftp >= 70 ? '#4CAF7C' : ftp < 40 ? '#E85555' : '#C9A84C') + '">' + ftp + '%</div>' +
+        '<div style="font-size:10px;color:#4A5870">1ST TOUCH</div></div>' +
+      '<div style="text-align:center;background:#0C1220;padding:10px;border-radius:8px">' +
+        '<div style="font-size:12px;color:#8B9BB8">Pool ' + pw + '–' + (pool.length - pw) + '</div>' +
+        '<div style="font-size:12px;color:#8B9BB8;margin-top:2px">DE ' + dw + '–' + (de.length - dw) + '</div></div>' +
+      '</div>' + badge;
   });
-}
-
-function renderFTHistoryStatus() {
-  var ftEl = document.getElementById('ft-history-status');
-  if(!ftEl) return;
-  var html2 = '';
-  var fKeys = ['raedyn', 'kaylan'];
-  var fi;
-  for(fi = 0; fi < fKeys.length; fi++) {
-    var fk = fKeys[fi];
-    var cached = localStorage.getItem('ft_bouts_' + fk);
-    var count = cached ? JSON.parse(cached).length : 0;
-    html2 += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
-    html2 += '<span style="font-size:13px;">' + FENCERS[fk].first + ': ' + (count > 0 ? count + ' bouts' : 'Not loaded') + '</span>';
-    html2 += '<button class="btn-sm" style="background:var(--bg2);color:var(--gold);border:1px solid var(--gold-border);min-height:30px;padding:4px 10px;font-size:12px;" onclick="ACTIVE_FENCER=\'' + fk + '\';loadFencerHistory()">Refresh</button>';
-    html2 += '</div>';
-  }
-  ftEl.innerHTML = html2;
 }
 
 function updateDebriefAutoFill() {
