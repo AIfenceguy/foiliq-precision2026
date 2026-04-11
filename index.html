@@ -1544,50 +1544,37 @@ function deleteBoutFromDB(id, cb) {
 }
 
 function saveBoutToLocal(bout) {
-  var key = 'ft_live_bouts_' + (bout.fencer || ACTIVE_FENCER);
-  var arr = JSON.parse(localStorage.getItem(key) || '[]');
-  bout.id = bout.id || Date.now();
-  arr.push(bout);
-  localStorage.setItem(key, JSON.stringify(arr));
+  // DEPRECATED — all bouts save to Supabase via saveBoutToDB
 }
 
 function seedTodaysResults() {
-  var seeded = localStorage.getItem('precision_jnr_seeded');
-  if(seeded) return;
+  // Check DB — if Raedyn already has bouts, skip seeding
+  loadBoutsFromDB('raedyn', function(existing) {
+    if(existing && existing.length > 0) return;
 
-  var today = '2026-04-10';
-  var bouts = [
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'pool',opponent:'Foy',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'pool',opponent:'Tonef',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'pool',opponent:'Picache',score_self:4,score_opp:5,result:'L',first_touch:'opp',overtime:true,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:4,event_type:'pool',opponent:'Shadravan',score_self:5,score_opp:1,result:'W',first_touch:'you',overtime:false,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'de',opponent:'Sha',score_self:15,score_opp:3,result:'W',first_touch:'you',overtime:false,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'de',opponent:'Tonef',score_self:15,score_opp:5,result:'W',first_touch:'you',overtime:false,manual_entry:true},
-    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'de',opponent:'Sumin',score_self:11,score_opp:15,result:'L',first_touch:'opp',overtime:false,manual_entry:true}
-  ];
+    var today = '2026-04-10';
+    var bouts = [
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'pool',opponent:'Foy',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'pool',opponent:'Tonef',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'pool',opponent:'Picache',score_self:4,score_opp:5,result:'L',first_touch:'opp',overtime:true,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:4,event_type:'pool',opponent:'Shadravan',score_self:5,score_opp:1,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'de',opponent:'Sha',score_self:15,score_opp:3,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'de',opponent:'Tonef',score_self:15,score_opp:5,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+      {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'de',opponent:'Sumin',score_self:11,score_opp:15,result:'L',first_touch:'opp',overtime:false,manual_entry:true}
+    ];
 
-  var saved = 0;
-  var i;
-  for(i = 0; i < bouts.length; i++) {
-    saveBoutToDB(bouts[i], function() {
-      saved++;
-      if(saved === bouts.length) {
-        localStorage.setItem('precision_jnr_seeded', '1');
-        showToast('Raedyn JNR results loaded — 2nd place! 🥈');
-        updateHomeStatus();
-      }
-    });
-  }
-  // Also save to localStorage as fallback
-  var key = 'ft_live_bouts_raedyn';
-  var existing = JSON.parse(localStorage.getItem(key) || '[]');
-  for(i = 0; i < bouts.length; i++) {
-    bouts[i].id = Date.now() + i;
-    bouts[i].date = '2026-04-10';
-    existing.push(bouts[i]);
-  }
-  localStorage.setItem(key, JSON.stringify(existing));
-  localStorage.setItem('precision_jnr_seeded', '1');
+    var saved = 0;
+    var i;
+    for(i = 0; i < bouts.length; i++) {
+      saveBoutToDB(bouts[i], function() {
+        saved++;
+        if(saved === bouts.length) {
+          showToast('Raedyn JNR results loaded — 2nd place! 🥈');
+          updateHomeStatus();
+        }
+      });
+    }
+  });
 }
 
 /* ===== DB ANALYTICS CACHE ===== */
@@ -1838,7 +1825,22 @@ function showApp() {
   var saved = localStorage.getItem('foiliq_fencer');
   if(saved && FENCERS[saved]) { switchFencer(saved); }
 
-  // Seed real JNR results (runs once)
+  // Purge stale localStorage keys — all competition data is in Supabase now
+  localStorage.removeItem('ft_live_bouts_raedyn');
+  localStorage.removeItem('ft_live_bouts_kaylan');
+  localStorage.removeItem('pre_game_sessions');
+  localStorage.removeItem('post_game_sessions');
+  localStorage.removeItem('training_targets');
+  localStorage.removeItem('post_bout_reflections');
+  localStorage.removeItem('de_break_raedyn');
+  localStorage.removeItem('de_break_kaylan');
+  localStorage.removeItem('de_readiness_raedyn');
+  localStorage.removeItem('de_readiness_kaylan');
+  localStorage.removeItem('de_results_raedyn');
+  localStorage.removeItem('de_results_kaylan');
+  localStorage.removeItem('precision_jnr_seeded');
+
+  // Seed real JNR results (checks DB first, runs once)
   seedTodaysResults();
 
   renderHomeTilesNew();
@@ -2093,7 +2095,8 @@ function selectRefOption(idx, el) {
 
 function saveRefNote() {
   if(selectedRefOption < 0) return;
-  localStorage.setItem('ref_observation_'+ACTIVE_EVENT, REF_OPTIONS[selectedRefOption]);
+  var refRow = {fencer:ACTIVE_FENCER, event_key:ACTIVE_EVENT, event_date:new Date().toISOString().split('T')[0], observation:REF_OPTIONS[selectedRefOption], tournament:TOURNAMENT};
+  dbREST('POST', '/referee_notes', refRow, function(err) {});
   showStatus('Ref note saved for ' + ACTIVE_EVENT.toUpperCase());
 }
 
@@ -2601,7 +2604,7 @@ function useFencingTimeDEUrl() {
       showToast('Fencer not yet in DE results', 'warn');
       return;
     }
-    localStorage.setItem('de_results_' + ACTIVE_FENCER, JSON.stringify(deData));
+    // DE results displayed inline — no localStorage needed
     showToast('DE found: ' + deData.bouts.length + ' bout(s)');
   }, function(err) {
     showToast('Failed: ' + err, 'error');
@@ -3223,7 +3226,7 @@ function finishPreGame() {
       response: response,
       timestamp: Date.now()
     });
-    localStorage.setItem('pre_game_sessions', JSON.stringify(sessions));
+    dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'pregame', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(sessions), tournament:TOURNAMENT}, function() {});
   });
 }
 
@@ -3487,7 +3490,7 @@ function savePostBoutReflection(oppName) {
     overtime: pbOvertime,
     timestamp: Date.now()
   });
-  localStorage.setItem('post_bout_reflections', JSON.stringify(reflections));
+  dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'post_bout', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(reflections), tournament:TOURNAMENT}, function() {});
   qcSelections = {};
   closeCompDayOverlay();
   showStatus('Bout reflection saved');
@@ -3617,7 +3620,7 @@ function submitDEBreak() {
       event: ACTIVE_EVENT, score_self: deScoreYou, score_opp: deScoreOpp,
       situation: situationText, advice: response, timestamp: Date.now()
     });
-    localStorage.setItem('de_break_'+ACTIVE_FENCER, JSON.stringify(breaks));
+    dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'de_break', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(breaks), tournament:TOURNAMENT}, function() {});
   });
 }
 
@@ -3709,7 +3712,7 @@ function showReadinessCheck() {
     // Save
     var checks = JSON.parse(localStorage.getItem('de_readiness_'+ACTIVE_FENCER) || '[]');
     checks.push({ event: ACTIVE_EVENT, answers: answers, timestamp: Date.now() });
-    localStorage.setItem('de_readiness_'+ACTIVE_FENCER, JSON.stringify(checks));
+    dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'readiness', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(checks), tournament:TOURNAMENT}, function() {});
     closeCompDayOverlay();
     showStatus('Readiness check saved');
   }
@@ -3875,7 +3878,7 @@ function saveDebriefData() {
     notes: document.getElementById('deb-notes') ? document.getElementById('deb-notes').value : '',
     timestamp: Date.now()
   });
-  localStorage.setItem('post_game_sessions', JSON.stringify(sessions));
+  dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'debrief', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(sessions), tournament:TOURNAMENT}, function() {});
 }
 
 function generateTrainingTargets() {
@@ -3954,7 +3957,7 @@ function generateTrainingTargets() {
       fencer: ACTIVE_FENCER, event: ACTIVE_EVENT,
       response: response, timestamp: Date.now(), completed: [false, false, false]
     });
-    localStorage.setItem('training_targets', JSON.stringify(targets));
+    dbREST('POST', '/competition_sessions', {fencer:ACTIVE_FENCER, session_type:'training_targets', event_key:ACTIVE_EVENT||'unknown', event_date:new Date().toISOString().split('T')[0], data:JSON.stringify(targets), tournament:TOURNAMENT}, function() {});
   });
 }
 
@@ -4855,17 +4858,20 @@ function adjustEditScore(who, delta) {
 }
 
 function saveEditBout(idx) {
-  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
-  var bouts = JSON.parse(localStorage.getItem(key) || '[]');
-  if(!bouts[idx]) return;
-  bouts[idx].opponent = document.getElementById('edit-bout-opp').value.trim() || bouts[idx].opponent;
-  bouts[idx].score_self = parseInt(document.getElementById('edit-score-you').textContent);
-  bouts[idx].score_opp = parseInt(document.getElementById('edit-score-opp').textContent);
-  bouts[idx].result = bouts[idx].score_self > bouts[idx].score_opp ? 'W' : 'L';
-  localStorage.setItem(key, JSON.stringify(bouts));
-  closeBoutDetail();
-  renderBoutLog();
-  showStatus('Bout updated');
+  var oppVal = document.getElementById('edit-bout-opp').value.trim();
+  var ssVal = parseInt(document.getElementById('edit-score-you').textContent);
+  var soVal = parseInt(document.getElementById('edit-score-opp').textContent);
+  var resVal = ssVal > soVal ? 'W' : 'L';
+  if(idx) {
+    dbREST('PATCH', '/competition_bouts?id=eq.' + idx, {opponent:oppVal, score_self:ssVal, score_opp:soVal, result:resVal}, function(err) {
+      closeBoutDetail();
+      renderBoutLog();
+      updateHomeStatus();
+      if(typeof showToast === 'function') showToast('Bout updated');
+    });
+  } else {
+    closeBoutDetail();
+  }
 }
 
 function closeBoutDetail() {
