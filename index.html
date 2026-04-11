@@ -1040,6 +1040,7 @@ h3 { font-size: 20px; }
     </div>
     <span class="mode-badge" id="mode-badge">RAEDYN MODE</span>
     <button class="top-signout" onclick="openSettings()" style="font-size:16px;">⚙</button>
+    <span id="sync-dot" style="width:8px;height:8px;border-radius:50%;background:#4A5568;display:inline-block;margin-left:4px;" title="Sync status"></span>
   </div>
 </div>
 
@@ -1424,7 +1425,7 @@ h3 { font-size: 20px; }
     <button class="nav-tab" onclick="showTab('debrief',this)">
       <span class="nav-icon">📊</span>Debrief
     </button>
-    <button class="nav-tab" onclick="showTab('history',this)">
+    <button class="nav-tab" onclick="showTab('history',this);renderHistoryTab();">
       <span class="nav-icon">📈</span>History
     </button>
   </div>
@@ -1472,6 +1473,131 @@ var SUPABASE_URL = 'https://kyfkiigbiwhczrtnlivc.supabase.co';
 var SUPABASE_ANON_KEY = 'sb_publishable_GbLL0419rGP6EYSmq42Bsg_r5EkOYtg';
 var sb = null;
 try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e) { sb = null; }
+
+/* ===== COMPETITION BOUTS DB ===== */
+var TOURNAMENT = 'precision_2026';
+
+function showSyncStatus(status) {
+  var el = document.getElementById('sync-dot');
+  if(!el) return;
+  var colors = {saving:'#C9A84C', saved:'#4CAF7C', error:'#E85555', idle:'#4A5568'};
+  el.style.background = colors[status] || colors.idle;
+}
+
+function saveBoutToDB(bout, onDone) {
+  if(!sb) { if(onDone) onDone(null); return; }
+  showSyncStatus('saving');
+  var row = {
+    fencer: bout.fencer || ACTIVE_FENCER,
+    event_name: bout.event_name || 'Precision Invitational',
+    event_date: bout.event_date || new Date().toISOString().split('T')[0],
+    bout_num: bout.bout_num || 1,
+    event_type: bout.event_type || 'pool',
+    opponent: bout.opponent || '',
+    score_self: bout.score_self || 0,
+    score_opp: bout.score_opp || 0,
+    result: bout.result || (bout.score_self > bout.score_opp ? 'W' : 'L'),
+    duration_sec: bout.duration_seconds || bout.duration_sec || null,
+    first_touch: bout.first_touch_scorer || bout.first_touch || 'unknown',
+    overtime: bout.overtime || false,
+    off_target_self: bout.off_target_self || 0,
+    off_target_opp: bout.off_target_opp || 0,
+    touches: JSON.stringify(bout.touches || []),
+    manual_entry: bout.manual_entry || false,
+    recorded_by: getSessionEmail(),
+    tournament: TOURNAMENT
+  };
+  sb.from('competition_bouts').insert(row).select().then(function(res) {
+    if(res.error) {
+      console.warn('saveBout DB error:', res.error.message);
+      showSyncStatus('error');
+      // Fallback: save to localStorage
+      saveBoutToLocal(bout);
+    } else {
+      showSyncStatus('saved');
+    }
+    if(onDone) onDone(res.data);
+  });
+}
+
+function saveBoutToLocal(bout) {
+  var key = 'ft_live_bouts_' + (bout.fencer || ACTIVE_FENCER);
+  var arr = JSON.parse(localStorage.getItem(key) || '[]');
+  bout.id = bout.id || Date.now();
+  arr.push(bout);
+  localStorage.setItem(key, JSON.stringify(arr));
+}
+
+function loadBoutsFromDB(fencer, onDone) {
+  if(!sb) { onDone(loadBoutsFromLocal(fencer)); return; }
+  sb.from('competition_bouts')
+    .select('*')
+    .eq('fencer', fencer)
+    .eq('tournament', TOURNAMENT)
+    .order('event_date', {ascending: true})
+    .order('bout_num', {ascending: true})
+    .then(function(res) {
+      if(res.error || !res.data || res.data.length === 0) {
+        // Fallback to localStorage
+        onDone(loadBoutsFromLocal(fencer));
+        return;
+      }
+      onDone(res.data);
+    });
+}
+
+function loadBoutsFromLocal(fencer) {
+  try { return JSON.parse(localStorage.getItem('ft_live_bouts_' + fencer) || '[]'); }
+  catch(e) { return []; }
+}
+
+function deleteBoutFromDB(boutId, onDone) {
+  if(!sb) { if(onDone) onDone(); return; }
+  showSyncStatus('saving');
+  sb.from('competition_bouts').delete().eq('id', boutId).then(function(res) {
+    showSyncStatus(res.error ? 'error' : 'saved');
+    if(onDone) onDone();
+  });
+}
+
+function seedTodaysResults() {
+  var seeded = localStorage.getItem('precision_jnr_seeded');
+  if(seeded) return;
+
+  var today = '2026-04-10';
+  var bouts = [
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'pool',opponent:'Foy',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'pool',opponent:'Tonef',score_self:5,score_opp:2,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'pool',opponent:'Picache',score_self:4,score_opp:5,result:'L',first_touch:'opp',overtime:true,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:4,event_type:'pool',opponent:'Shadravan',score_self:5,score_opp:1,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:1,event_type:'de',opponent:'Sha',score_self:15,score_opp:3,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:2,event_type:'de',opponent:'Tonef',score_self:15,score_opp:5,result:'W',first_touch:'you',overtime:false,manual_entry:true},
+    {fencer:'raedyn',event_name:'Precision JNR',event_date:today,bout_num:3,event_type:'de',opponent:'Sumin',score_self:11,score_opp:15,result:'L',first_touch:'opp',overtime:false,manual_entry:true}
+  ];
+
+  var saved = 0;
+  var i;
+  for(i = 0; i < bouts.length; i++) {
+    saveBoutToDB(bouts[i], function() {
+      saved++;
+      if(saved === bouts.length) {
+        localStorage.setItem('precision_jnr_seeded', '1');
+        showToast('Raedyn JNR results loaded — 2nd place! 🥈');
+        updateHomeStatus();
+      }
+    });
+  }
+  // Also save to localStorage as fallback
+  var key = 'ft_live_bouts_raedyn';
+  var existing = JSON.parse(localStorage.getItem(key) || '[]');
+  for(i = 0; i < bouts.length; i++) {
+    bouts[i].id = Date.now() + i;
+    bouts[i].date = '2026-04-10';
+    existing.push(bouts[i]);
+  }
+  localStorage.setItem(key, JSON.stringify(existing));
+  localStorage.setItem('precision_jnr_seeded', '1');
+}
 
 /* ===== DB ANALYTICS CACHE ===== */
 var DB_ANALYTICS = {};
@@ -1721,11 +1847,13 @@ function showApp() {
   var saved = localStorage.getItem('foiliq_fencer');
   if(saved && FENCERS[saved]) { switchFencer(saved); }
 
+  // Seed real JNR results (runs once)
+  seedTodaysResults();
+
   renderHomeTilesNew();
   updateHomeStatus();
   renderIntelTab();
   renderPoolInputs();
-  buildHistoryStats();
   updateDebriefAutoFill();
   updatePregameContext();
   updateTimerFencerIndicator();
@@ -1775,7 +1903,7 @@ function switchFencer(key) {
   updateHomeStatus();
   renderIntelTab();
   renderPoolInputs();
-  buildHistoryStats();
+  renderHistoryTab();
   updateDebriefAutoFill();
   updatePregameContext();
   updateTimerFencerIndicator();
@@ -2832,10 +2960,12 @@ function endBout() {
     timestamp: Date.now()
   };
 
-  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
-  var existing = JSON.parse(localStorage.getItem(key) || '[]');
-  existing.push(boutRecord);
-  localStorage.setItem(key, JSON.stringify(existing));
+  // Save to DB + localStorage fallback
+  saveBoutToDB(boutRecord, function(savedRow) {
+    if(savedRow && savedRow[0]) boutRecord.id = savedRow[0].id;
+    updateHomeStatus();
+  });
+  saveBoutToLocal(boutRecord);
 
   // Show summary
   showBoutSummary(boutRecord);
@@ -3618,74 +3748,74 @@ function startDebrief() {
   var f = FENCERS[ACTIVE_FENCER];
   debriefData = { fencer: ACTIVE_FENCER, event: ACTIVE_EVENT };
 
-  var html = '<div class="card">';
-  html += '<div class="card-header">END OF DAY — '+ACTIVE_EVENT.toUpperCase()+'</div>';
-  html += '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">'+f.name+' • '+new Date().toLocaleDateString()+'</div>';
-
-  // Final result
-  html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Final placement</label>';
-  html += '<div class="spinner-row" style="justify-content:center;">';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'place\',-1)">−</button>';
-  html += '<span class="spinner-val" id="deb-place">1</span>';
-  html += '<span style="color:var(--text2);margin:0 8px;">of</span>';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',-1)">−</button>';
-  html += '<span class="spinner-val" id="deb-field">20</span>';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',1)">+</button>';
-  html += '</div></div>';
-
-  // Pool record
-  html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Pool record</label>';
-  html += '<div class="spinner-row" style="justify-content:center;">';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'pw\',-1)">−</button>';
-  html += '<span class="spinner-val" id="deb-pw">0</span><span style="color:var(--text2);margin:0 4px;">W</span>';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'pw\',1)">+</button>';
-  html += '<span style="width:16px;"></span>';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'pl\',-1)">−</button>';
-  html += '<span class="spinner-val" id="deb-pl">0</span><span style="color:var(--text2);margin:0 4px;">L</span>';
-  html += '<button class="spinner-btn" onclick="adjustDebrief(\'pl\',1)">+</button>';
-  html += '</div></div>';
-
-  // DE result
-  html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">DE result</label>';
-  html += '<select id="deb-de-result" style="width:100%;">';
-  html += '<option value="r64">Lost in R64</option><option value="r32">Lost in R32</option>';
-  html += '<option value="r16">Lost in R16</option><option value="qf">Lost in QF</option>';
-  html += '<option value="sf">Lost in SF</option><option value="final">Lost in Final</option>';
-  html += '<option value="won">Won! 🏆</option>';
-  html += '</select></div>';
-
-  // Overall feeling
-  html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Overall feeling (1–5)</label>';
-  html += '<div class="star-row" id="deb-stars">';
-  var i;
-  for(i = 1; i <= 5; i++) {
-    html += '<button class="star-btn" onclick="setDebriefStars('+i+')">★</button>';
-  }
-  html += '</div></div>';
-
-  // Quick questions
-  html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What moment are you most proud of today?</label>';
-  html += '<textarea id="deb-proud" placeholder="Write here..."></textarea></div>';
-
-  html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What\'s the one thing you\'d do differently?</label>';
-  html += '<textarea id="deb-different" placeholder="Write here..."></textarea></div>';
-
-  html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Did your game plan work?</label>';
-  html += '<div style="display:flex;gap:8px;">';
-  html += '<button class="qc-option" style="flex:1;text-align:center;" onclick="selectQC(this,\'gameplan\',0)">Yes</button>';
-  html += '<button class="qc-option" style="flex:1;text-align:center;" onclick="selectQC(this,\'gameplan\',1)">Partly</button>';
-  html += '<button class="qc-option" style="flex:1;text-align:center;" onclick="selectQC(this,\'gameplan\',2)">Not really</button>';
-  html += '</div></div>';
-
-  html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Anything else worth remembering?</label>';
-  html += '<textarea id="deb-notes" placeholder="Write here..."></textarea></div>';
-
-  html += '<button class="btn-gold" onclick="submitDebrief()">Generate Training Targets →</button>';
-  html += '</div>';
-
   document.getElementById('debrief-content').classList.add('hidden');
-  document.getElementById('debrief-flow').innerHTML = html;
-  document.getElementById('debrief-flow').classList.remove('hidden');
+  var flowEl = document.getElementById('debrief-flow');
+  flowEl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;">Loading bout data...</div>';
+  flowEl.classList.remove('hidden');
+
+  loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
+    var today = new Date().toISOString().split('T')[0];
+    var todayBouts = bouts.filter(function(b) {
+      return (b.event_date || b.date || (b.created_at || '').split('T')[0]) === today;
+    });
+    var poolBouts = todayBouts.filter(function(b) { return b.event_type === 'pool'; });
+    var deBouts = todayBouts.filter(function(b) { return b.event_type === 'de'; });
+    var poolW = 0, deW = 0, i;
+    for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolW++; }
+    for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deW++; }
+    var lastDE = deBouts.length > 0 ? deBouts[deBouts.length - 1] : null;
+
+    // Pre-fill debrief values
+    debPW = poolW; debPL = poolBouts.length - poolW;
+    debField = 17; debPlace = 2; // Default for JNR today
+
+    var html = '<div class="card">';
+    html += '<div class="card-header">END OF DAY — ' + ACTIVE_EVENT.toUpperCase() + '</div>';
+    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;">' + f.name + ' • ' + new Date().toLocaleDateString() + '</div>';
+
+    // Auto-loaded summary
+    if(todayBouts.length > 0) {
+      html += '<div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:16px;border:1px solid var(--gold-border);">';
+      html += '<div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;">Auto-loaded from today\'s bouts</div>';
+      html += '<div style="font-size:14px;color:var(--text);">Pool: <strong>' + poolW + 'W–' + (poolBouts.length - poolW) + 'L</strong></div>';
+      if(deBouts.length > 0) {
+        html += '<div style="font-size:14px;color:var(--text);margin-top:4px;">DE: <strong>' + deW + 'W–' + (deBouts.length - deW) + 'L</strong></div>';
+      }
+      if(lastDE) {
+        html += '<div style="font-size:14px;color:' + (lastDE.result === 'W' ? 'var(--green)' : 'var(--red)') + ';margin-top:4px;">';
+        html += 'Last bout: ' + (lastDE.result === 'W' ? 'Won' : 'Lost') + ' vs ' + (lastDE.opponent || '?') + ' ' + (lastDE.score_self || 0) + '–' + (lastDE.score_opp || 0) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Placement
+    html += '<div style="margin-bottom:16px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Final placement</label>';
+    html += '<div class="spinner-row" style="justify-content:center;">';
+    html += '<button class="spinner-btn" onclick="adjustDebrief(\'place\',-1)">−</button>';
+    html += '<span class="spinner-val" id="deb-place">' + debPlace + '</span>';
+    html += '<span style="color:var(--text2);margin:0 8px;">of</span>';
+    html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',-1)">−</button>';
+    html += '<span class="spinner-val" id="deb-field">' + debField + '</span>';
+    html += '<button class="spinner-btn" onclick="adjustDebrief(\'field\',1)">+</button>';
+    html += '</div></div>';
+
+    // Questions
+    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What moment are you most proud of today?</label>';
+    html += '<textarea id="deb-proud" placeholder="e.g. Came back from 0-2 to win the semifinal..."></textarea></div>';
+
+    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">What\'s one thing to work on?</label>';
+    html += '<textarea id="deb-different" placeholder="e.g. First touch — I was late to initiate..."></textarea></div>';
+
+    html += '<div style="margin-bottom:12px;"><label style="font-size:13px;color:var(--text2);display:block;margin-bottom:6px;">Overall feeling (1–5)</label>';
+    html += '<div class="star-row" id="deb-stars">';
+    for(i = 1; i <= 5; i++) { html += '<button class="star-btn" onclick="setDebriefStars(' + i + ')">★</button>'; }
+    html += '</div></div>';
+
+    html += '<button class="btn-gold" onclick="submitDebrief()">Generate Training Targets →</button>';
+    html += '</div>';
+
+    flowEl.innerHTML = html;
+  });
 }
 
 var debPlace = 1, debField = 20, debPW = 0, debPL = 0, debStars = 3;
@@ -4525,75 +4655,82 @@ function updateTimerFencerIndicator() {
 }
 
 function renderBoutLog() {
-  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
-  var bouts = JSON.parse(localStorage.getItem(key) || '[]');
   var f = FENCERS[ACTIVE_FENCER];
   var container = document.getElementById('bout-log-content');
+  if(!container) return;
+  container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;">Loading bouts...</div>';
 
-  if(bouts.length === 0) {
-    container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:30px;">No bouts recorded yet for ' + f.first + '.<br><br>Use the timer to record your first bout.</div>';
-    return;
-  }
-
-  // Group by date
-  var grouped = {};
-  var i;
-  for(i = 0; i < bouts.length; i++) {
-    var b = bouts[i];
-    var dateStr = b.date || new Date(b.timestamp).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-    if(!grouped[dateStr]) grouped[dateStr] = [];
-    grouped[dateStr].push({bout: b, index: i});
-  }
-
-  var today = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-  var html = '<h3 style="color:var(--gold);margin-bottom:10px;">Bout Log — ' + f.first.toUpperCase() + '</h3>';
-
-  var dateKeys = Object.keys(grouped).reverse();
-  var di;
-  for(di = 0; di < dateKeys.length; di++) {
-    var dateLabel = dateKeys[di] === today ? 'TODAY — ' + dateKeys[di] : dateKeys[di];
-    html += '<div class="bout-log-date-header">' + dateLabel + '</div>';
-    var dayBouts = grouped[dateKeys[di]];
-    var bi;
-    for(bi = 0; bi < dayBouts.length; bi++) {
-      var bout = dayBouts[bi].bout;
-      var idx = dayBouts[bi].index;
-      var resultClass = bout.result === 'W' ? 'win' : 'loss';
-      var boutLabel = bout.event_type === 'pool' ? 'Bout ' + (bout.bout_num || '') : 'DE';
-      html += '<div class="bout-log-row">';
-      html += '<div class="bout-log-info">';
-      html += '<div class="bout-log-opp">' + boutLabel + '  vs ' + bout.opponent + '</div>';
-      html += '<div class="bout-log-meta">' + formatTime(bout.duration_seconds || 0) + (bout.overtime ? ' ★ OT' : '') + '</div>';
-      html += '</div>';
-      html += '<div class="bout-log-result ' + resultClass + '">' + bout.score_self + '–' + bout.score_opp + '</div>';
-      html += '<div class="bout-log-actions">';
-      html += '<button class="bout-log-btn" onclick="showBoutDetail(' + idx + ')">▶</button>';
-      html += '<button class="bout-log-btn" onclick="confirmDeleteBout(' + idx + ')">🗑</button>';
-      html += '</div>';
-      html += '</div>';
+  loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
+    if(!bouts || bouts.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:32px;">' +
+        '<div style="font-size:40px;margin-bottom:12px;">📋</div>' +
+        '<div style="color:var(--text2);font-size:16px;">No bouts recorded yet for ' + f.first + '</div>' +
+        '<div style="color:var(--text3);font-size:13px;margin-top:8px;">Use the Timer to record bouts at strip-side</div></div>';
+      return;
     }
-  }
 
-  // Summary
-  var totalW = 0, totalL = 0, ftRate = 0, ftTotal = 0;
-  var todayW = 0, todayL = 0;
-  for(i = 0; i < bouts.length; i++) {
-    if(bouts[i].result === 'W') totalW++; else totalL++;
-    var boutDate = bouts[i].date || new Date(bouts[i].timestamp).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-    if(boutDate === today) {
-      if(bouts[i].result === 'W') todayW++; else todayL++;
+    var today = new Date().toISOString().split('T')[0];
+    var grouped = {};
+    var i;
+    for(i = 0; i < bouts.length; i++) {
+      var d = bouts[i].event_date || bouts[i].date || (bouts[i].created_at || '').split('T')[0] || today;
+      if(!grouped[d]) grouped[d] = [];
+      grouped[d].push(bouts[i]);
     }
-    if(bouts[i].first_touch_scorer === 'you') ftRate++;
-    if(bouts[i].first_touch_scorer) ftTotal++;
-  }
 
-  html += '<div class="bout-log-summary">';
-  html += '<strong>Today:</strong> ' + todayW + 'W–' + todayL + 'L';
-  html += ' &nbsp;|&nbsp; <strong>All recorded:</strong> ' + totalW + 'W–' + totalL + 'L';
-  if(ftTotal > 0) html += '<br><strong>First touch rate:</strong> ' + ftRate + '/' + ftTotal + ' (' + Math.round(ftRate/ftTotal*100) + '%)';
-  html += '</div>';
+    var html = '<h3 style="color:var(--gold);margin-bottom:10px;">Bout Log — ' + f.first.toUpperCase() + '</h3>';
+    var dateKeys = Object.keys(grouped).sort().reverse();
+    var di;
+    for(di = 0; di < dateKeys.length; di++) {
+      var dateLabel = dateKeys[di] === today ? '📅 TODAY' : dateKeys[di];
+      html += '<div class="bout-log-date-header">' + dateLabel + '</div>';
+      var dayBouts = grouped[dateKeys[di]];
+      var bi;
+      for(bi = 0; bi < dayBouts.length; bi++) {
+        var bout = dayBouts[bi];
+        var boutId = bout.id || bi;
+        var rColor = bout.result === 'W' ? 'var(--green)' : 'var(--red)';
+        var typeLabel = bout.event_type === 'de' ? 'DE' : 'Pool ' + (bout.bout_num || '');
+        var otStar = bout.overtime ? '★' : '';
+        var ft = bout.first_touch || bout.first_touch_scorer || '';
+        var ftDot = ft === 'you' ? '<span style="color:var(--green);font-size:10px;margin-left:4px;">●</span>' :
+                    ft === 'opp' ? '<span style="color:var(--red);font-size:10px;margin-left:4px;">●</span>' : '';
 
-  container.innerHTML = html;
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border-radius:8px;margin-bottom:6px;border-left:3px solid ' + rColor + ';">';
+        html += '<span style="color:' + rColor + ';font-weight:700;font-family:\'JetBrains Mono\',monospace;min-width:14px;">' + bout.result + '</span>';
+        html += '<span style="color:var(--text);flex:1;font-size:14px;">' + (bout.opponent || '?') + '</span>';
+        html += ftDot;
+        html += '<span style="color:' + rColor + ';font-family:\'JetBrains Mono\',monospace;font-size:13px;">' + (bout.score_self || 0) + '–' + (bout.score_opp || 0) + otStar + '</span>';
+        html += '<span style="color:var(--text3);font-size:11px;min-width:36px;">' + typeLabel + '</span>';
+        html += '<button onclick="confirmDeleteBout(\'' + boutId + '\')" style="padding:4px 8px;background:none;border:1px solid rgba(232,85,85,.3);border-radius:6px;color:var(--red);font-size:11px;cursor:pointer;min-height:28px;">✕</button>';
+        html += '</div>';
+      }
+    }
+
+    // Summary bar
+    var totalW = 0, ftWins = 0;
+    for(i = 0; i < bouts.length; i++) {
+      if(bouts[i].result === 'W') totalW++;
+      var ftVal = bouts[i].first_touch || bouts[i].first_touch_scorer || '';
+      if(ftVal === 'you') ftWins++;
+    }
+    var ftPct = bouts.length > 0 ? Math.round(ftWins / bouts.length * 100) : 0;
+
+    html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(201,168,76,0.08);">';
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
+    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;">' + totalW + '–' + (bouts.length - totalW) + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">ALL TIME</div></div>';
+    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;color:var(--gold);">' + ftPct + '%</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">1ST TOUCH</div></div>';
+    html += '<div style="text-align:center;background:var(--bg2);padding:10px;border-radius:8px;">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:20px;color:var(--text2);">' + bouts.length + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);">BOUTS</div></div>';
+    html += '</div></div>';
+
+    container.innerHTML = html;
+  });
 }
 
 function showBoutDetail(idx) {
@@ -4709,15 +4846,18 @@ function confirmDeleteBout(idx) {
 }
 
 function doDeleteBout() {
+  deleteBoutFromDB(pendingDeleteIdx, function() {
+    closeConfirm();
+    closeBoutDetail();
+    renderBoutLog();
+    updateHomeStatus();
+    showToast('Deleted', 'error');
+  });
+  // Also remove from localStorage fallback
   var key = 'ft_live_bouts_' + ACTIVE_FENCER;
   var bouts = JSON.parse(localStorage.getItem(key) || '[]');
-  bouts.splice(pendingDeleteIdx, 1);
-  localStorage.setItem(key, JSON.stringify(bouts));
-  closeConfirm();
-  closeBoutDetail();
-  renderBoutLog();
-  updateHomeStatus();
-  showStatus('Bout deleted');
+  var filtered = bouts.filter(function(b) { return (b.id + '') !== (pendingDeleteIdx + ''); });
+  localStorage.setItem(key, JSON.stringify(filtered));
 }
 
 function closeConfirm() {
@@ -4748,60 +4888,90 @@ function renderHomeTilesNew() {
 }
 
 function updateHomeStatus() {
-  var bouts = JSON.parse(localStorage.getItem('ft_live_bouts_' + ACTIVE_FENCER) || '[]');
   var el = document.getElementById('home-status-body');
   if(!el) return;
+  el.innerHTML = '<div style="color:var(--text3);font-size:12px;">Loading...</div>';
 
-  if(bouts.length === 0) {
-    el.innerHTML = 'No bouts recorded yet. Use the Timer to start recording.';
-    return;
-  }
-
-  var today = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-  var todayBouts = bouts.filter(function(b) {
-    var d = b.date || new Date(b.timestamp).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
-    return d === today;
-  });
-
-  var tw = 0, tl = 0, ft = 0, ftT = 0;
-  var i;
-  for(i = 0; i < todayBouts.length; i++) {
-    if(todayBouts[i].result === 'W') tw++; else tl++;
-    if(todayBouts[i].first_touch_scorer === 'you') ft++;
-    if(todayBouts[i].first_touch_scorer) ftT++;
-  }
-
-  var html = '';
-  if(todayBouts.length > 0) {
-    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:16px;font-weight:700;margin-bottom:4px;">';
-    html += '<span style="color:var(--green);">' + tw + 'W</span> – <span style="color:var(--red);">' + tl + 'L</span>';
-    html += ' <span style="color:var(--text3);">(' + todayBouts.length + ' bouts today)</span></div>';
-    if(ftT > 0) html += '<div>First touch rate: ' + ft + '/' + ftT + ' (' + Math.round(ft / ftT * 100) + '%)</div>';
-  } else {
-    html += 'No bouts recorded today. All-time: ' + bouts.length + ' bouts.';
-  }
-
-  el.innerHTML = html;
-
-  // API key status
-
-  // FT history status
-  var ftEl = document.getElementById('ft-history-status');
-  if(ftEl) {
-    var html2 = '';
-    var fKeys = ['raedyn', 'kaylan'];
-    var fi;
-    for(fi = 0; fi < fKeys.length; fi++) {
-      var fk = fKeys[fi];
-      var cached = localStorage.getItem('ft_bouts_' + fk);
-      var count = cached ? JSON.parse(cached).length : 0;
-      html2 += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
-      html2 += '<span style="font-size:13px;">' + FENCERS[fk].first + ': ' + (count > 0 ? count + ' bouts' : 'Not loaded') + '</span>';
-      html2 += '<button class="btn-sm" style="background:var(--bg2);color:var(--gold);border:1px solid var(--gold-border);min-height:30px;padding:4px 10px;font-size:12px;" onclick="ACTIVE_FENCER=\'' + fk + '\';loadFencerHistory()">Refresh</button>';
-      html2 += '</div>';
+  loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
+    if(!bouts || bouts.length === 0) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No bouts recorded yet. Use the Timer to start recording.</div>';
+      renderFTHistoryStatus();
+      return;
     }
-    ftEl.innerHTML = html2;
+
+    var today = new Date().toISOString().split('T')[0];
+    var todayBouts = bouts.filter(function(b) {
+      var d = b.event_date || b.date || (b.created_at || '').split('T')[0];
+      return d === today;
+    });
+    var wins = 0, losses = 0, ftWins = 0;
+    var poolBouts = [], deBouts = [];
+    var i;
+    for(i = 0; i < todayBouts.length; i++) {
+      if(todayBouts[i].result === 'W') wins++; else losses++;
+      if((todayBouts[i].first_touch || todayBouts[i].first_touch_scorer) === 'you') ftWins++;
+      if(todayBouts[i].event_type === 'pool') poolBouts.push(todayBouts[i]);
+      else deBouts.push(todayBouts[i]);
+    }
+    var ftPct = todayBouts.length > 0 ? Math.round(ftWins / todayBouts.length * 100) : null;
+    var poolW = 0;
+    for(i = 0; i < poolBouts.length; i++) { if(poolBouts[i].result === 'W') poolW++; }
+    var deW = 0;
+    for(i = 0; i < deBouts.length; i++) { if(deBouts[i].result === 'W') deW++; }
+
+    if(todayBouts.length === 0) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:13px;">No bouts today. All-time: ' + bouts.length + ' bouts.</div>';
+      renderFTHistoryStatus();
+      return;
+    }
+
+    // Placement detection
+    var lastDE = deBouts.length > 0 ? deBouts[deBouts.length - 1] : null;
+    var placementHtml = '';
+    if(lastDE && lastDE.result === 'L' && deBouts.length >= 3) {
+      placementHtml = '<div style="color:var(--gold);font-size:13px;font-weight:700;margin-top:4px;">🥈 Runner-up!</div>';
+    } else if(lastDE && lastDE.result === 'W' && deBouts.length >= 3) {
+      placementHtml = '<div style="color:var(--gold);font-size:13px;font-weight:700;margin-top:4px;">🥇 Champion!</div>';
+    } else if(deBouts.length > 0) {
+      placementHtml = '<div style="color:var(--text2);font-size:12px;margin-top:4px;">DE: ' + deW + 'W–' + (deBouts.length - deW) + 'L</div>';
+    }
+
+    el.innerHTML =
+      '<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">' +
+      '<div style="text-align:center;">' +
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:26px;font-weight:700;">' +
+        '<span style="color:var(--green);">' + wins + '</span><span style="color:var(--text3);font-size:18px;">–</span><span style="color:var(--red);">' + losses + '</span></div>' +
+      '<div style="font-size:10px;color:var(--text3);">TODAY</div></div>' +
+      (ftPct !== null ?
+      '<div style="text-align:center;">' +
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:26px;font-weight:700;color:' +
+        (ftPct >= 70 ? 'var(--green)' : ftPct < 40 ? 'var(--red)' : 'var(--gold)') + ';">' + ftPct + '%</div>' +
+      '<div style="font-size:10px;color:var(--text3);">1ST TOUCH</div></div>' : '') +
+      '<div style="text-align:center;">' +
+      '<div style="font-size:12px;color:var(--text2);">Pool: ' + poolW + 'W–' + (poolBouts.length - poolW) + 'L</div>' +
+      placementHtml +
+      '</div></div>';
+
+    renderFTHistoryStatus();
+  });
+}
+
+function renderFTHistoryStatus() {
+  var ftEl = document.getElementById('ft-history-status');
+  if(!ftEl) return;
+  var html2 = '';
+  var fKeys = ['raedyn', 'kaylan'];
+  var fi;
+  for(fi = 0; fi < fKeys.length; fi++) {
+    var fk = fKeys[fi];
+    var cached = localStorage.getItem('ft_bouts_' + fk);
+    var count = cached ? JSON.parse(cached).length : 0;
+    html2 += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
+    html2 += '<span style="font-size:13px;">' + FENCERS[fk].first + ': ' + (count > 0 ? count + ' bouts' : 'Not loaded') + '</span>';
+    html2 += '<button class="btn-sm" style="background:var(--bg2);color:var(--gold);border:1px solid var(--gold-border);min-height:30px;padding:4px 10px;font-size:12px;" onclick="ACTIVE_FENCER=\'' + fk + '\';loadFencerHistory()">Refresh</button>';
+    html2 += '</div>';
   }
+  ftEl.innerHTML = html2;
 }
 
 function updateDebriefAutoFill() {
@@ -5650,13 +5820,12 @@ function saveManualBout() {
     timestamp: Date.now()
   };
 
-  var key = 'ft_live_bouts_' + ACTIVE_FENCER;
-  var bouts = JSON.parse(localStorage.getItem(key) || '[]');
-  bouts.push(bout);
-  localStorage.setItem(key, JSON.stringify(bouts));
-
-  showToast('Bout saved ✓');
-  updateHomeStatus();
+  // Save to DB + localStorage fallback
+  saveBoutToDB(bout, function() {
+    showToast('Bout saved ✓');
+    updateHomeStatus();
+  });
+  saveBoutToLocal(bout);
   updateLivePoolAnalytics();
 
   // Reset form
@@ -5830,6 +5999,102 @@ renderOppListCompact = function() {
     if(dbData && dbData.total_bouts > 0) renderFencerProfileInCard(expandedOppKey, dbData);
   }
 };
+
+
+/* ================================================================
+   HISTORY TAB — DB-BACKED
+   ================================================================ */
+
+function renderHistoryTab() {
+  var el = document.getElementById('history-club');
+  var el2 = document.getElementById('history-individual');
+  if(!el) return;
+  el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;">Loading...</div>';
+  if(el2) el2.innerHTML = '';
+
+  loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
+    if(!bouts || bouts.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:32px;">' +
+        '<div style="font-size:48px;margin-bottom:16px;">📈</div>' +
+        '<div style="color:var(--text2);font-size:18px;font-family:\'Bebas Neue\',sans-serif;letter-spacing:1px;">NO HISTORY YET</div>' +
+        '<div style="color:var(--text3);font-size:13px;margin-top:8px;line-height:1.6;">' +
+        'Record bouts using the Timer tab.<br>Results will appear here.</div></div>';
+      return;
+    }
+
+    var fencerName = FENCERS[ACTIVE_FENCER].first.toUpperCase();
+    var wins = 0, ftWins = 0, poolW = 0, poolTotal = 0, deW = 0, deTotal = 0, otW = 0, otTotal = 0;
+    var i;
+    for(i = 0; i < bouts.length; i++) {
+      var b = bouts[i];
+      if(b.result === 'W') wins++;
+      var ft = b.first_touch || b.first_touch_scorer || '';
+      if(ft === 'you') ftWins++;
+      if(b.event_type === 'pool') { poolTotal++; if(b.result === 'W') poolW++; }
+      else { deTotal++; if(b.result === 'W') deW++; }
+      if(b.overtime) { otTotal++; if(b.result === 'W') otW++; }
+    }
+    var losses = bouts.length - wins;
+    var ftPct = bouts.length > 0 ? Math.round(ftWins / bouts.length * 100) : 0;
+
+    var html = '';
+    html += '<div style="font-family:\'Bebas Neue\',sans-serif;letter-spacing:2px;font-size:22px;color:var(--gold);margin-bottom:4px;">' + fencerName + ' — PRECISION 2026</div>';
+    html += '<div style="font-size:12px;color:var(--text3);margin-bottom:16px;">' + bouts.length + ' bouts recorded</div>';
+
+    // Stats grid
+    html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;">';
+    html += '<div style="background:var(--bg2);padding:14px;border-radius:10px;text-align:center;border-left:3px solid var(--gold);">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:28px;">' + wins + '–' + losses + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Overall</div></div>';
+    html += '<div style="background:var(--bg2);padding:14px;border-radius:10px;text-align:center;border-left:3px solid ' + (ftPct >= 70 ? 'var(--green)' : ftPct < 50 ? 'var(--red)' : 'var(--gold)') + ';">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:28px;color:' + (ftPct >= 70 ? 'var(--green)' : ftPct < 50 ? 'var(--red)' : 'var(--gold)') + ';">' + ftPct + '%</div>';
+    html += '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;">1st Touch</div></div>';
+    html += '<div style="background:var(--bg2);padding:14px;border-radius:10px;text-align:center;">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;">' + poolW + '–' + (poolTotal - poolW) + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Pool</div></div>';
+    html += '<div style="background:var(--bg2);padding:14px;border-radius:10px;text-align:center;">';
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;">' + deW + '–' + (deTotal - deW) + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3);text-transform:uppercase;">DE</div></div>';
+    html += '</div>';
+
+    if(otTotal > 0) {
+      html += '<div style="background:var(--bg2);padding:10px 14px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">';
+      html += '<span style="color:var(--text2);font-size:13px;">Overtime bouts</span>';
+      html += '<span style="font-family:\'JetBrains Mono\',monospace;color:var(--gold);">' + otW + '/' + otTotal + '</span></div>';
+    }
+
+    // All bouts list
+    html += '<div style="font-family:\'Bebas Neue\',sans-serif;letter-spacing:1.5px;color:var(--gold);font-size:14px;margin-bottom:8px;">ALL BOUTS</div>';
+    var poolArr = bouts.filter(function(b) { return b.event_type === 'pool'; });
+    var deArr = bouts.filter(function(b) { return b.event_type === 'de'; });
+
+    if(poolArr.length > 0) {
+      html += '<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Pools</div>';
+      for(i = 0; i < poolArr.length; i++) { html += renderHistoryBoutRow(poolArr[i]); }
+    }
+    if(deArr.length > 0) {
+      html += '<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;">Direct Elimination</div>';
+      for(i = 0; i < deArr.length; i++) { html += renderHistoryBoutRow(deArr[i]); }
+    }
+
+    el.innerHTML = html;
+    if(el2) el2.innerHTML = '';
+  });
+}
+
+function renderHistoryBoutRow(b) {
+  var rColor = b.result === 'W' ? 'var(--green)' : 'var(--red)';
+  var otStar = b.overtime ? '★' : '';
+  var ft = b.first_touch || b.first_touch_scorer || '';
+  var ftDot = ft === 'you' ? '<span style="color:var(--green);font-size:9px;margin:0 2px;">●</span>' :
+              ft === 'opp' ? '<span style="color:var(--red);font-size:9px;margin:0 2px;">●</span>' : '';
+  return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg2);border-radius:8px;margin-bottom:4px;border-left:3px solid ' + rColor + ';">' +
+    '<span style="color:' + rColor + ';font-weight:700;font-family:\'JetBrains Mono\',monospace;min-width:16px;">' + b.result + '</span>' +
+    '<span style="color:var(--text);flex:1;font-size:14px;">' + (b.opponent || '?') + '</span>' +
+    ftDot +
+    '<span style="color:' + rColor + ';font-family:\'JetBrains Mono\',monospace;font-size:14px;">' + (b.score_self || 0) + '–' + (b.score_opp || 0) + otStar + '</span>' +
+    '</div>';
+}
 
 
 /* ================================================================
