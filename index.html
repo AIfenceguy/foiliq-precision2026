@@ -3767,9 +3767,7 @@ function startDebrief() {
   if(!el) return;
   el.innerHTML = '<div style="padding:20px;text-align:center;color:#4A5870">Loading your results...</div>';
   loadBoutsFromDB(ACTIVE_FENCER, function(bouts) {
-    var today = new Date().toISOString().split('T')[0];
-    var todayBouts = bouts.filter(function(b){ return (b.event_date || (b.created_at||'').split('T')[0]) === today; });
-    if(todayBouts.length === 0) todayBouts = bouts;
+    var todayBouts = bouts;
     var poolB = todayBouts.filter(function(b){ return b.event_type==='pool'; });
     var deB   = todayBouts.filter(function(b){ return b.event_type==='de'; });
     var poolW = poolB.filter(function(b){ return b.result==='W'; }).length;
